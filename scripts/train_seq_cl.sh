@@ -39,10 +39,10 @@ deepspeed --include=localhost:0 --master_port $port training/main.py \
     --data_output_path "$DATA_CACHE" \
     --dataset_name C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
     --model_name_or_path "$MODEL_PATH" \
-    --per_device_train_batch_size 1 \
-    --per_device_eval_batch_size 4 \
-    --max_prompt_len 512 \
-    --max_ans_len 256 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 16 \
+    --max_prompt_len 1024 \
+    --max_ans_len 512 \
     --learning_rate 1e-5 \
     --weight_decay 0. \
     --num_train_epochs 5,3,7,5,3,5,5,7 \

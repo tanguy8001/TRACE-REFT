@@ -41,8 +41,8 @@ deepspeed --include=localhost:0 --master_port $port inference/infer_single.py \
     --model_name_or_path "$MODEL_PATH" \
     --inference_model_path "$INFERENCE_MODEL_PATH" \
     --inference_batch 4 \
-    --max_prompt_len 512 \
-    --max_ans_len 256 \
+    --max_prompt_len 1024 \
+    --max_ans_len 512 \
     --seed 1234 \
     --deepspeed \
     --CL_method "$cl_method" \
