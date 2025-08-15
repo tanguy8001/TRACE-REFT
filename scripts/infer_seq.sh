@@ -20,7 +20,7 @@ port=$(shuf -i25000-30000 -n1)
 
 # Paths customized for this environment
 DATA_PATH="/cluster/scratch/tdieudonne/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_500"
-MODEL_PATH="/cluster/scratch/tdieudonne/initial_model/llama-7b-hf"
+MODEL_PATH="/cluster/scratch/tdieudonne/initial_model/llama-2-7b-chat"
 INFERENCE_MODEL_PATH="/cluster/scratch/tdieudonne/outputs_LLM-CL/cl/${cl_method}"
 INFER_OUTPUT_PATH="${INFERENCE_MODEL_PATH}/predictions"
 
