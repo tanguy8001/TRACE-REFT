@@ -6,21 +6,26 @@
 #SBATCH --gres=gpumem:38g
 #SBATCH --mem-per-cpu=16g
 
-source /cluster/home/tdieudonne/miniconda3/etc/profile.d/conda.sh
+# User-configurable variables
+USERNAME="${USERNAME:-tdieudonne}"
+MODEL_NAME="${MODEL_NAME:-llama-2-7b-chat}"
+BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
+
+source /cluster/home/${USERNAME}/miniconda3/etc/profile.d/conda.sh
 module load eth_proxy
 module load stack/2024-06 cuda/12.8.0
 conda activate trace
 
-cd /cluster/home/tdieudonne/clmm/TRACE
+cd /cluster/home/${USERNAME}/clmm/TRACE
 
 cl_method="O-LoRA"
 port=$(shuf -i25000-30000 -n1)
 
 # Paths customized for this environment
-DATA_PATH="/cluster/scratch/tdieudonne/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_500"
-MODEL_PATH="/cluster/scratch/tdieudonne/initial_model/llama-2-7b-chat"
-OUTPUT_DIR="/cluster/scratch/tdieudonne/outputs_LLM-CL/cl/${cl_method}"
-DATA_CACHE="/cluster/scratch/tdieudonne/TRACE_cache"
+DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_${BENCHMARK_SIZE}"
+MODEL_PATH="/cluster/scratch/${USERNAME}/initial_model/${MODEL_NAME}"
+OUTPUT_DIR="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}"
+DATA_CACHE="/cluster/scratch/${USERNAME}/TRACE_cache"
 
 mkdir -p "$OUTPUT_DIR"
 mkdir -p "$DATA_CACHE"
@@ -39,8 +44,8 @@ deepspeed --include=localhost:0 --master_port $port training/main.py \
     --data_output_path "$DATA_CACHE" \
     --dataset_name C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
     --model_name_or_path "$MODEL_PATH" \
-    --per_device_train_batch_size 2 \
-    --per_device_eval_batch_size 16 \
+    --per_device_train_batch_size 1 \
+    --per_device_eval_batch_size 4 \
     --max_prompt_len 1024 \
     --max_ans_len 512 \
     --learning_rate 1e-5 \

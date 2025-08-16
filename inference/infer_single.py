@@ -26,6 +26,7 @@ from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
 import deepspeed
 import json
+from typing import Dict, List, Tuple, Optional
 
 from transformers import (
     LlamaForCausalLM,
@@ -206,6 +207,35 @@ def main():
             json.dump(df, file, ensure_ascii=False)
 
 
+    # ===== Helpers for summary/averaging & BWT =====
+    def _primary_metric_for_task(task: str) -> Tuple[str, float]:
+        """Return (metric_name, scale) used for averaging.
+
+        scale is multiplied to normalize metrics to [0,1].
+        """
+        if task in ("C-STANCE", "FOMC", "ScienceQA", "NumGLUE-cm", "NumGLUE-ds"):
+            return ("accuracy", 1.0)
+        if task == "MeetingBank":
+            return ("rouge-L", 1.0)
+        if task == "Py150":
+            return ("similarity", 1.0 / 100.0)  # fuzzy ratio 0-100
+        if task == "20Minuten":
+            return ("sari", 1.0 / 100.0)       # SARI 0-100
+        return ("", 1.0)
+
+    def _extract_primary_metric(task: str, evaluation_result: Dict[str, float]) -> Optional[float]:
+        metric_name, scale = _primary_metric_for_task(task)
+        if not metric_name:
+            return None
+        val = evaluation_result.get(metric_name)
+        if val is None:
+            return None
+        return float(val) * float(scale)
+
+    # round_summaries[round_index][task] = normalized_primary_metric
+    round_summaries: List[Dict[str, float]] = []
+
+
     tokenizer = load_hf_tokenizer(args.model_name_or_path, fast_tokenizer=True)
     # default the LLM is decoder only model, so padding side is left
     assert tokenizer.padding_side == 'left'
@@ -345,6 +375,55 @@ def main():
             # if args.global_rank <= 0:  # only one process is running
             print("***** Saving inference results *****")
             save_inference_results(evaluation_result, sources_sequences, predicted_sequences, ground_truths, round, inference_task_id, inference_task)
+
+            # Update summary store
+            if args.local_rank in (-1, 0):
+                while len(round_summaries) <= round:
+                    round_summaries.append({})
+                v = _extract_primary_metric(inference_task, evaluation_result)
+                if v is not None:
+                    round_summaries[round][inference_task] = v
+
+        # Per-round average across tasks seen so far
+        if args.local_rank in (-1, 0):
+            seen_tasks = [inference_tasks[i] for i in range(round + 1)]
+            vals = [round_summaries[round].get(t) for t in seen_tasks]
+            vals = [x for x in vals if isinstance(x, float)]
+            if vals:
+                avg_val = sum(vals) / len(vals)
+                print(f"Round {round} average over {len(vals)} task(s): {avg_val:.3f}")
+
+    # After all rounds, print compact table + final average + BWT
+    if args.local_rank in (-1, 0) and len(round_summaries) == task_num:
+        print("\n===== Continual Learning Summary (normalized primary metrics) =====")
+        header = ["Task"] + [str(r) for r in range(task_num)]
+        print("\t".join(header))
+        for task in inference_tasks:
+            row = [task]
+            for r in range(task_num):
+                v = round_summaries[r].get(task)
+                row.append("" if v is None else f"{v:.3f}")
+            print("\t".join(row))
+
+        final_vals = [round_summaries[-1].get(t) for t in inference_tasks]
+        final_vals = [x for x in final_vals if isinstance(x, float)]
+        if final_vals:
+            final_avg = sum(final_vals) / len(final_vals)
+            print(f"Final average (round {task_num-1}): {final_avg:.3f}")
+
+        # BWT formula: mean_{i<T} (R_T,i - R_i,i)
+        diag = []
+        final = []
+        for i, task in enumerate(inference_tasks):
+            if i < task_num - 1:
+                r_ii = round_summaries[i].get(task)
+                r_ti = round_summaries[-1].get(task)
+                if isinstance(r_ii, float) and isinstance(r_ti, float):
+                    diag.append(r_ii)
+                    final.append(r_ti)
+        if diag and final:
+            bwt = sum((ft - di) for ft, di in zip(final, diag)) / len(diag)
+            print("BWT (mean_i<T (R_T,i - R_i,i)): {:.3f}".format(bwt))
 
 if __name__ == "__main__":
     main()

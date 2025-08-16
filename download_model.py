@@ -37,7 +37,7 @@ import traceback
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-REPO_ID = "meta-llama/Llama-2-7b-chat-hf"
+REPO_ID = "meta-llama/Llama-2-7b-chat-hf"   # or 'yahma/llama-7b-hf'
 SAVE_DIR = "/cluster/scratch/tdieudonne/initial_model/llama-2-7b-chat"
 
 

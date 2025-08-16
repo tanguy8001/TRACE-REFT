@@ -35,6 +35,7 @@ from utils.ds_utils import get_train_ds_config
 from utils.model.model_utils import create_hf_model
 from training.params import Method2Class, AllDatasetName
 from evaluations import eval_ScienceQA, eval_MeetingBank, eval_PapyrusF, eval_CStance, eval_Py150, eval_FOMC, eval_NumGLUE_cm, eval_NumGLUE_ds, eval_20Minuten # to be continued
+from typing import Dict, List, Tuple, Optional
 
 
 # os.environ['CUDA_VISIBLE_DEVICES']="0"
@@ -356,6 +357,27 @@ def main():
     model = ds_engine.module
 
 
+    # Helpers for summary
+    def _primary_metric_for_task(task: str) -> Tuple[str, float]:
+        if task in ("C-STANCE","FOMC","ScienceQA","NumGLUE-cm","NumGLUE-ds"):
+            return ("accuracy", 1.0)
+        if task == "MeetingBank":
+            return ("rouge-L", 1.0)
+        if task == "Py150":
+            return ("similarity", 1.0/100.0)
+        if task == "20Minuten":
+            return ("sari", 1.0/100.0)
+        return ("", 1.0)
+
+    def _extract_primary_metric(task: str, result: Dict[str,float]) -> Optional[float]:
+        name, scale = _primary_metric_for_task(task)
+        if not name:
+            return None
+        v = result.get(name)
+        return None if v is None else float(v)*float(scale)
+
+    per_task_scores: Dict[str,float] = {}
+
     for task in Datasets:
         data_path = args.data_path
         inference_output_path = args.inference_output_path
@@ -449,6 +471,16 @@ def main():
             
         with open(inference_output_path + "/results-" + task + ".json", "w+", encoding='utf-8') as file:
             json.dump(df, file, ensure_ascii=False)
+
+        # store normalized metric for averaging over tasks in ICL
+        v = _extract_primary_metric(task, evaluation_result)
+        if v is not None:
+            per_task_scores[task] = v
+
+    # Print ICL average over all requested tasks (normalized)
+    if per_task_scores:
+        avg = sum(per_task_scores.values())/len(per_task_scores)
+        print("ICL average over {} task(s): {:.3f}".format(len(per_task_scores), avg))
 
 
 if __name__ == "__main__":
