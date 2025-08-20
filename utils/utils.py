@@ -111,8 +111,38 @@ def save_hf_format(model, tokenizer, args, sub_folder=""):
     #     if "lora" in key:
     #         del save_dict[key]
     torch.save(save_dict, output_model_file)
-    model_to_save.config.to_json_file(output_config_file)
-    tokenizer.save_pretrained(output_dir)
+    # Write config with robust fallback to handle non-JSON-serializable objects
+    try:
+        model_to_save.config.to_json_file(output_config_file)
+    except Exception:
+        import json
+        def _safe(obj):
+            try:
+                import torch as _torch  # local import to avoid polluting namespace
+                if isinstance(obj, (str, int, float, bool)) or obj is None:
+                    return obj
+                if isinstance(obj, _torch.dtype):
+                    return str(obj)
+            except Exception:
+                pass
+            if isinstance(obj, dict):
+                return {k: _safe(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return [_safe(v) for v in obj]
+            # Fallback: stringify unknown objects/types
+            try:
+                return str(obj)
+            except Exception:
+                return None
+        cfg_dict = getattr(model_to_save, 'config', None)
+        cfg_dict = cfg_dict.to_dict() if hasattr(cfg_dict, 'to_dict') else {}
+        with open(output_config_file, 'w', encoding='utf-8') as f:
+            json.dump(_safe(cfg_dict), f, indent=2)
+    # Tokenizer save
+    try:
+        tokenizer.save_pretrained(output_dir)
+    except Exception:
+        pass
 
 def set_random_seed(seed):
     if seed is not None:
