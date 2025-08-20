@@ -202,6 +202,14 @@ def parse_args():
     parser.add_argument('--reft_layers', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
     parser.add_argument('--reft_rank', type=int, default=4, help='Low-rank dimension r for REFT')
     parser.add_argument('--reft_eps', type=float, default=1e-6, help='Epsilon for direction normalization')
+    # Precision control
+    parser.add_argument(
+        '--precision',
+        type=str,
+        default='bf16',
+        choices=['bf16', 'fp16', 'fp32'],
+        help='Training precision. Use fp32 to disable bf16/fp16 entirely for debugging.'
+    )
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
 
@@ -228,6 +236,43 @@ def main():
                                     enable_tensorboard=args.enable_tensorboard,
                                     tb_path=args.tensorboard_path,
                                     tb_name="v2_sft")
+
+    # Override precision per args before model creation
+    precision = getattr(args, 'precision', 'bf16')
+    if precision == 'fp32':
+        # Ensure both bf16 and fp16 are disabled
+        if 'bfloat16' in ds_config and isinstance(ds_config['bfloat16'], dict):
+            ds_config['bfloat16']['enabled'] = False
+        else:
+            ds_config['bfloat16'] = {'enabled': False}
+        if 'fp16' in ds_config and isinstance(ds_config['fp16'], dict):
+            ds_config['fp16']['enabled'] = False
+        else:
+            ds_config['fp16'] = {'enabled': False}
+        # Make TP modules default to float32 where applicable
+        if 'tensor_parallel_config' in ds_config and isinstance(ds_config['tensor_parallel_config'], dict):
+            ds_config['tensor_parallel_config']['dtype'] = torch.float32
+    elif precision == 'fp16':
+        # Enable fp16 and disable bf16
+        if 'fp16' not in ds_config or not isinstance(ds_config['fp16'], dict):
+            ds_config['fp16'] = {}
+        ds_config['fp16']['enabled'] = True
+        if 'bfloat16' in ds_config and isinstance(ds_config['bfloat16'], dict):
+            ds_config['bfloat16']['enabled'] = False
+        else:
+            ds_config['bfloat16'] = {'enabled': False}
+        if 'tensor_parallel_config' in ds_config and isinstance(ds_config['tensor_parallel_config'], dict):
+            ds_config['tensor_parallel_config']['dtype'] = torch.float16
+    else:  # bf16
+        if 'bfloat16' not in ds_config or not isinstance(ds_config['bfloat16'], dict):
+            ds_config['bfloat16'] = {}
+        ds_config['bfloat16']['enabled'] = True
+        if 'fp16' in ds_config and isinstance(ds_config['fp16'], dict):
+            ds_config['fp16']['enabled'] = False
+        else:
+            ds_config['fp16'] = {'enabled': False}
+        if 'tensor_parallel_config' in ds_config and isinstance(ds_config['tensor_parallel_config'], dict):
+            ds_config['tensor_parallel_config']['dtype'] = torch.bfloat16
     # set batch size
     ds_config[
         'train_micro_batch_size_per_gpu'] = args.per_device_train_batch_size
@@ -245,12 +290,21 @@ def main():
     assert tokenizer.padding_side == 'left'
     assert tokenizer.truncation_side == "left"
 
+    # Force FP32 weights if requested
+    force_dtype = None
+    if precision == 'fp32':
+        force_dtype = torch.float32
+    elif precision == 'fp16':
+        force_dtype = torch.float16
+    elif precision == 'bf16':
+        force_dtype = torch.bfloat16
+
     model = create_hf_model(AutoModelForCausalLM,
                             args.model_name_or_path,
                             tokenizer,
                             ds_config=ds_config,
-                            disable_dropout=args.disable_dropout
-                            )
+                            disable_dropout=args.disable_dropout,
+                            force_torch_dtype=force_dtype)
     
     # some CL methods can be realized by peft
     if args.CL_method == "LFPT5":
@@ -457,7 +511,15 @@ def main():
         dist_init_required=True)
 
     if args.gradient_checkpointing:
-        model.gradient_checkpointing_enable()
+        underlying = model.module if hasattr(model, 'module') else model
+        if hasattr(underlying, 'gradient_checkpointing_enable'):
+            underlying.gradient_checkpointing_enable()
+        # Disable use_cache for compatibility with gradient checkpointing
+        try:
+            if hasattr(underlying, 'config'):
+                underlying.config.use_cache = False
+        except Exception:
+            pass
 
     # Train!
     print_rank_0("***** Running training *****", args.global_rank)

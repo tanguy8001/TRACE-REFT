@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --output=/cluster/home/tdieudonne/clmm/TRACE/logs/train_seq_cl_%j.out
 #SBATCH --time=24:00:00
-#SBATCH --gpus-per-node=1
+#SBATCH --gpus-per-node=2
 #SBATCH --partition=gpupr.24h
 #SBATCH --gres=gpumem:38g
+#SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=16g
-
 USERNAME="${USERNAME:-tdieudonne}"
 MODEL_NAME="${MODEL_NAME:-llama-2-7b-chat}"
 BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
@@ -33,7 +33,7 @@ echo "Data cache: $DATA_CACHE"
 echo "CL method: $cl_method"
 echo "Port: $port"
 
-deepspeed  --include=localhost:0 --master_port $port clmm/TRACE/training/main.py \
+deepspeed  --include=localhost:0,1 --master_port $port clmm/TRACE/training/main.py \
   --data_path "${DATA_PATH}" \
   --dataset_name C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
   --data_output_path "${DATA_CACHE}" \
@@ -53,10 +53,12 @@ deepspeed  --include=localhost:0 --master_port $port clmm/TRACE/training/main.py
   --reft_layers "3;9;18;24" \
   --reft_rank 4 \
   --reft_eps 1e-6 \
+  --gradient_checkpointing \
   --disable_dropout \
   --print_loss \
   --deepspeed \
-  --zero_stage 2 \
+  --zero_stage 3 \
+  --precision fp32 \
   2>&1 | tee -a "$OUTPUT_DIR"/train.log
 
 

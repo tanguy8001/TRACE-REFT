@@ -12,7 +12,7 @@ class AlphaBank(torch.nn.Module):
     def __init__(self, num_tasks: int, alpha_init: float = 0.1):
         super().__init__()
         self.alphas = torch.nn.ParameterList(
-            [torch.nn.Parameter(torch.tensor(alpha_init, dtype=torch.bfloat16)) for _ in range(num_tasks)]
+            [torch.nn.Parameter(torch.tensor(alpha_init, dtype=torch.float32)) for _ in range(num_tasks)]
         )
 
 

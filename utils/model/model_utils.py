@@ -23,6 +23,7 @@ def create_hf_model(model_class,
                     tokenizer,
                     ds_config=None,
                     disable_dropout=False,
+                    force_torch_dtype=None,
                     ):
     model_config = AutoConfig.from_pretrained(model_name_or_path, trust_remote_code=True)
 
@@ -33,8 +34,12 @@ def create_hf_model(model_class,
     if ds_config is not None and ds_config["zero_optimization"]["stage"] == 3 and HfDeepSpeedConfig is not None:
         _ = HfDeepSpeedConfig(ds_config)
 
-    # Prefer loading weights directly in reduced precision to avoid OOM on large models
-    preferred_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+    # Decide desired dtype
+    if force_torch_dtype is not None:
+        preferred_dtype = force_torch_dtype
+    else:
+        # Prefer loading weights directly in reduced precision to avoid OOM on large models
+        preferred_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
     model = model_class.from_pretrained(
         model_name_or_path,
         from_tf=bool(".ckpt" in model_name_or_path),

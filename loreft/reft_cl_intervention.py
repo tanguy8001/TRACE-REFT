@@ -83,10 +83,13 @@ class ReftCLIntervention(
         # Compute using float32 for numeric stability of norms
         for i in range(self.active_tasks):
             block = self.tasks[i]
+            # Ensure input matches block params dtype to avoid dtype mismatch
+            target_dtype = block.rotate_layer.weight.dtype
+            h_cast = h.to(target_dtype)
             # R h
-            rotated_base = block.rotate_layer(h)
+            rotated_base = block.rotate_layer(h_cast)
             # W h + b
-            learned = block.act_fn(block.learned_source(h))
+            learned = block.act_fn(block.learned_source(h_cast))
             # (W h + b) - (R h)
             delta_low = learned - rotated_base
             # R^T * ...
