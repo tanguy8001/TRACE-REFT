@@ -466,9 +466,6 @@ def main():
     if CL_Trainer is not None:
         CL_Trainer.model = model
         CL_Trainer.optimizer = optimizer
-        # Important for REFT-CL: keep orthogonal parametrizations in fp32 to avoid BF16 orgqr limitation
-        if hasattr(CL_Trainer, "ensure_orthogonal_params_fp32"):
-            CL_Trainer.ensure_orthogonal_params_fp32()
         CL_Trainer.train_continual()
     elif args.CL_method in Method2Class.keys():
         CL_Trainer = Method2Class[args.CL_method](model, tokenizer, optimizer, train_task_list, eval_task_list, test_task_list, args)

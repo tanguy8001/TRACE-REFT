@@ -106,33 +106,6 @@ class ReFTCL(CL_Base_Model):
             if hasattr(inter, "set_active_tasks"):
                 inter.set_active_tasks(t)
 
-    def ensure_orthogonal_params_fp32(self):
-        """Cast orthogonal rotation parameters to float32 to keep Householder orgqr in supported dtype.
-        Must be called AFTER DeepSpeed initialize, which may cast modules to bfloat16.
-        """
-        base_ref = self.model.module if hasattr(self.model, "module") else self.model
-        for inter in getattr(base_ref, "interventions", {}).values():
-            if hasattr(inter, "tasks"):
-                for block in inter.tasks:
-                    if hasattr(block, "rotate_layer"):
-                        rot = block.rotate_layer
-                        # Best-effort: cast parametrization's stored base/original and module to float32
-                        try:
-                            # Parametrizations are stored under .parametrizations.weight[0]
-                            if hasattr(rot, "parametrizations") and hasattr(rot.parametrizations, "weight"):
-                                ortho_obj = rot.parametrizations.weight[0]
-                                if hasattr(ortho_obj, "original") and ortho_obj.original.dtype != torch.float32:
-                                    ortho_obj.original = torch.nn.Parameter(ortho_obj.original.detach().to(torch.float32))
-                                if hasattr(ortho_obj, "base") and ortho_obj.base.dtype != torch.float32:
-                                    ortho_obj.base = torch.nn.Parameter(ortho_obj.base.detach().to(torch.float32))
-                        except Exception:
-                            pass
-                        # Ensure the exposed weight and module params are float32
-                        try:
-                            rot.to(torch.float32)
-                        except Exception:
-                            pass
-
     def train_continual(self):
         # For each task round, unfreeze (R_t, W_t, b_t) across layers and set alphas 1..t trainable
         for i_task, task in enumerate(self.train_task_list):
