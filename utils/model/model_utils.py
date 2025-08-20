@@ -10,7 +10,11 @@ from transformers import (
     AutoModel,
 )
 from huggingface_hub import snapshot_download
-from transformers.deepspeed import HfDeepSpeedConfig
+try:
+    # Optional dependency in some transformers builds
+    from transformers.deepspeed import HfDeepSpeedConfig  # type: ignore
+except Exception:
+    HfDeepSpeedConfig = None  # type: ignore
 from transformers import LlamaForCausalLM, LlamaConfig
 
 
@@ -26,10 +30,8 @@ def create_hf_model(model_class,
         model_config.dropout = 0.0
     # Note: dschf is defined in function scope to avoid global effects
     # https://huggingface.co/docs/transformers/main_classes/deepspeed#nontrainer-deepspeed-integration
-    if ds_config is not None and ds_config["zero_optimization"]["stage"] == 3:
-        dschf = HfDeepSpeedConfig(ds_config)
-    else:
-        dschf = None
+    if ds_config is not None and ds_config["zero_optimization"]["stage"] == 3 and HfDeepSpeedConfig is not None:
+        _ = HfDeepSpeedConfig(ds_config)
 
     # Prefer loading weights directly in reduced precision to avoid OOM on large models
     preferred_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16

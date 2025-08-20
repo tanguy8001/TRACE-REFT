@@ -198,6 +198,10 @@ def parse_args():
     parser.add_argument('--CL_method',
                 default=None,
                 help='continual learning method used')
+    # REFT-CL specific knobs (defaults match user's LoReFT run)
+    parser.add_argument('--reft_layers', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
+    parser.add_argument('--reft_rank', type=int, default=4, help='Low-rank dimension r for REFT')
+    parser.add_argument('--reft_eps', type=float, default=1e-6, help='Epsilon for direction normalization')
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
 
@@ -437,6 +441,12 @@ def main():
                 if "prompt" not in name:
                     params.requires_grad=False
                     
+    # Special path for REFT-CL: build trainer BEFORE deepspeed init so pyreft params are registered
+    CL_Trainer = None
+    if args.CL_method == "REFT-CL":
+        CL_Trainer = Method2Class[args.CL_method](model, tokenizer, None, train_task_list, eval_task_list, test_task_list, args)
+        model = CL_Trainer.model
+
     optimizer, lr_scheduler = get_optimizer(model)
     model, optimizer, _, lr_scheduler = deepspeed.initialize(
         model=model,
@@ -451,15 +461,16 @@ def main():
 
     # Train!
     print_rank_0("***** Running training *****", args.global_rank)
-    # print_rank_0(
-    #     f"***** Evaluating perplexity, Epoch {0}/{args.num_train_epochs} *****",
-    #     args.global_rank)
-    # perplexity = evaluation(model, eval_dataloader)
-    # print_rank_0(f"ppl: {perplexity}", args.global_rank)
 
-    # Initialize the global progress bar
-
-    if args.CL_method in Method2Class.keys():
+    # If trainer was pre-built (REFT-CL), set its model to DS engine and run
+    if CL_Trainer is not None:
+        CL_Trainer.model = model
+        CL_Trainer.optimizer = optimizer
+        # Important for REFT-CL: keep orthogonal parametrizations in fp32 to avoid BF16 orgqr limitation
+        if hasattr(CL_Trainer, "ensure_orthogonal_params_fp32"):
+            CL_Trainer.ensure_orthogonal_params_fp32()
+        CL_Trainer.train_continual()
+    elif args.CL_method in Method2Class.keys():
         CL_Trainer = Method2Class[args.CL_method](model, tokenizer, optimizer, train_task_list, eval_task_list, test_task_list, args)
         CL_Trainer.train_continual()
 

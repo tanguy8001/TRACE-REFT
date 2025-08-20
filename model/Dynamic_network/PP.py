@@ -6,7 +6,7 @@ from tqdm.auto import tqdm
 import logging, os, argparse
 
 from copy import deepcopy
-from transformers import AdamW
+# Note: AdamW import from transformers is deprecated in newer versions and not used here.
 from model.base_model import CL_Base_Model
 
 

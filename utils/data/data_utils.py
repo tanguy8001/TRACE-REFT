@@ -326,4 +326,13 @@ def create_prompt_dataset(local_rank,
 
     if distributed:
         torch.distributed.barrier()
-    return torch.load(train_fname), torch.load(eval_fname), torch.load(test_fname)
+
+    def _safe_load(path):
+        try:
+            # PyTorch 2.6+ defaults weights_only=True, which breaks loading arbitrary objects.
+            return torch.load(path, weights_only=False)
+        except TypeError:
+            # Older torch without weights_only argument
+            return torch.load(path)
+
+    return _safe_load(train_fname), _safe_load(eval_fname), _safe_load(test_fname)

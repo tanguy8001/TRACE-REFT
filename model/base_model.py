@@ -46,7 +46,13 @@ class CL_Base_Model:
             del batch['sources']
             batch = to_device(batch, device)
             with torch.no_grad():
-                outputs = self.model(**batch, use_cache=False)
+                # If wrapped by DeepSpeed, underlying module may be a pyreft IntervenableModel
+                underlying = self.model.module if hasattr(self.model, 'module') else self.model
+                if hasattr(underlying, 'interventions'):
+                    base_inputs = {"input_ids": batch["input_ids"], "attention_mask": batch.get("attention_mask")}
+                    outputs = self.model(base_inputs, labels=batch.get("labels"))
+                else:
+                    outputs = self.model(**batch, use_cache=False)
             loss = outputs.loss
             losses += loss.float()
         losses = losses / (step + 1)
@@ -83,7 +89,13 @@ class CL_Base_Model:
             for step, batch in enumerate(train_dataloader):
                 del batch['sources']
                 batch = to_device(batch, device)
-                outputs = self.model(**batch, use_cache=False)
+                # If wrapped by DeepSpeed, underlying module may be a pyreft IntervenableModel
+                underlying = self.model.module if hasattr(self.model, 'module') else self.model
+                if hasattr(underlying, 'interventions'):
+                    base_inputs = {"input_ids": batch["input_ids"], "attention_mask": batch.get("attention_mask")}
+                    outputs = self.model(base_inputs, labels=batch.get("labels"))
+                else:
+                    outputs = self.model(**batch, use_cache=False)
                 loss = outputs.loss
                 # Update the description to include current step and loss, if needed
                 if self.args.global_rank == 0:

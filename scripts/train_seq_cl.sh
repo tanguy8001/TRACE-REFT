@@ -31,6 +31,7 @@ mkdir -p "$OUTPUT_DIR"
 mkdir -p "$DATA_CACHE"
 mkdir -p "$DATA_PATH"
 
+echo "ATTENTION: ANCIEN ENVIRONNEMENT ACTIF: TRACE et non pas REFTCL"
 echo "Starting training with the following parameters:"
 echo "Data path: $DATA_PATH"
 echo "Model path: $MODEL_PATH"
