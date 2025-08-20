@@ -77,7 +77,7 @@ class ReFTCL(CL_Base_Model):
                     num_tasks=self.num_tasks,
                     get_alpha=_get_alpha,
                     eps=eps,
-                    dtype=torch.bfloat16,
+                    dtype=torch.float32,
                 )
             })
 
