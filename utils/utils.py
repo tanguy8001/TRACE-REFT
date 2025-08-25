@@ -165,14 +165,16 @@ def get_optimizer_grouped_parameters(
     lora_lr=5e-4,
     no_decay_name_list=["bias", "LayerNorm.weight"],
     lora_name_list=["lora_right_weight", "lora_left_weight"],
+    alpha_lr=None,
 ):
     optimizer_grouped_parameters = [
         {
             "params": [
                 p for n, p in model.named_parameters()
                 if (not any(nd in n for nd in no_decay_name_list)
-                    and p.requires_grad and not any(nd in n
-                                                    for nd in lora_name_list))
+                    and p.requires_grad
+                    and not any(nd in n for nd in lora_name_list)
+                    and not n.startswith("reftcl_alpha_bank.alphas"))
             ],
             "weight_decay":
             weight_decay,
@@ -181,8 +183,7 @@ def get_optimizer_grouped_parameters(
             "params": [
                 p for n, p in model.named_parameters()
                 if (not any(nd in n for nd in no_decay_name_list)
-                    and p.requires_grad and any(nd in n
-                                                for nd in lora_name_list))
+                    and p.requires_grad and any(nd in n for nd in lora_name_list))
             ],
             "weight_decay":
             weight_decay,
@@ -192,13 +193,27 @@ def get_optimizer_grouped_parameters(
         {
             "params": [
                 p for n, p in model.named_parameters()
-                if (any(nd in n
-                        for nd in no_decay_name_list) and p.requires_grad)
+                if (any(nd in n for nd in no_decay_name_list)
+                    and p.requires_grad
+                    and not n.startswith("reftcl_alpha_bank.alphas"))
             ],
             "weight_decay":
             0.0,
         },
     ]
+
+    # Optional dedicated group for REFT-CL alpha scalars with custom LR
+    if alpha_lr is not None:
+        alpha_params = [
+            p for n, p in model.named_parameters()
+            if n.startswith("reftcl_alpha_bank.alphas") and p.requires_grad
+        ]
+        if alpha_params:
+            optimizer_grouped_parameters.append({
+                "params": alpha_params,
+                "weight_decay": 0.0,
+                "lr": alpha_lr,
+            })
     if not optimizer_grouped_parameters[1]["params"]:
         optimizer_grouped_parameters.pop(1)
 

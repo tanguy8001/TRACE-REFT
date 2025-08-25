@@ -143,6 +143,10 @@ def parse_args():
     parser.add_argument('--CL_method',
             default=None,
             help='continual learning method used')
+    # REFT-CL specific knobs (align with training)
+    parser.add_argument('--reft_layers', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
+    parser.add_argument('--reft_rank', type=int, default=4, help='Low-rank dimension r for REFT')
+    parser.add_argument('--reft_eps', type=float, default=1e-6, help='Epsilon for direction normalization')
 
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
@@ -155,6 +159,62 @@ def main():
     set_random_seed(args.seed)
     device = torch.device("cuda")
 
+
+    def _is_intervenable(model_obj) -> bool:
+        underlying = model_obj.module if hasattr(model_obj, 'module') else model_obj
+        return hasattr(underlying, 'interventions')
+
+    def _pick_first_tensor(container):
+        if torch.is_tensor(container):
+            return container
+        if isinstance(container, (tuple, list)):
+            # Prefer non-None tensor with 2+ dims
+            candidates = [t for t in container if torch.is_tensor(t)]
+            if candidates:
+                candidates.sort(key=lambda t: (t.ndim, t.numel()), reverse=True)
+                return candidates[0]
+        # Try attributes commonly used
+        for attr in ("sequences", "ids", "output", "generated_ids"):
+            val = getattr(container, attr, None)
+            if torch.is_tensor(val):
+                return val
+        return None
+
+    def _generate_with_model(model_obj, tokenizer, batch, args):
+        # Returns a torch.Tensor of generated ids
+        gen_kwargs = dict(
+            max_new_tokens=args.max_ans_len,
+            bos_token_id=tokenizer.bos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.unk_token_id,
+            temperature=args.temperature,
+            do_sample=True,
+            num_return_sequences=1,
+            use_cache=True,
+        )
+        if _is_intervenable(model_obj):
+            base_inputs = {"input_ids": batch["input_ids"], "attention_mask": batch.get("attention_mask")}
+            out = model_obj.generate(base_inputs, **gen_kwargs)
+        else:
+            out = model_obj.generate(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'], **gen_kwargs)
+        gen_ids = _pick_first_tensor(out)
+        if gen_ids is None:
+            # Minimal debug dump
+            msg = f"[DEBUG] Unexpected generate() output type: {type(out).__name__}"
+            try:
+                if isinstance(out, (tuple, list)):
+                    shapes = []
+                    for t in out:
+                        if torch.is_tensor(t):
+                            shapes.append(f"Tensor{tuple(t.shape)}:{t.dtype}")
+                        else:
+                            shapes.append(type(t).__name__)
+                    msg += " | elements: " + ", ".join(shapes[:6])
+            except Exception:
+                pass
+            print_rank_0(msg, 0)
+            raise RuntimeError("Could not extract generated ids from model output")
+        return gen_ids
 
     def prediction(model, infer_dataloader):
         predicted_sequences = []
@@ -175,22 +235,7 @@ def main():
             description = f"Step {step}"
             progress_bar.set_description(description, refresh=False)
             with torch.no_grad():
-                # TODO, add more inference params
-                # backbone config
-                # generate_ids = model.generate(batch['input_ids'], max_new_tokens=args.max_ans_len,
-                #                               pad_token_id=tokenizer.eos_token_id, attention_mask = batch['attention_mask'], temperature=0.7, do_sample=True, repetition_penalty=2.0 )
-                # sft config
-                generate_ids = model.generate(input_ids=batch['input_ids'],
-                                              attention_mask=batch['attention_mask'],
-                                              max_new_tokens=args.max_ans_len,
-                                              bos_token_id=tokenizer.bos_token_id,
-                                              eos_token_id=tokenizer.eos_token_id,
-                                              pad_token_id=tokenizer.unk_token_id,
-                                              temperature=args.temperature,
-                                              do_sample=True,
-                                              num_return_sequences=1,
-                                              use_cache=True
-                                              )
+                generate_ids = _generate_with_model(model, tokenizer, batch, args)
             sequences = tokenizer.batch_decode(generate_ids[:, prompt_len:], skip_special_tokens=True,
                                                clean_up_tokenization_spaces=False)
             predicted_sequences += sequences
@@ -255,6 +300,55 @@ def main():
                                 tokenizer,
                                 ds_config=None,
                                 )
+
+        # REFT-CL: rebuild pyreft interventions, then load saved weights
+        if args.CL_method == "REFT-CL":
+            try:
+                from pyreft import get_reft_model, ReftConfig
+            except Exception:
+                from pyreft.utils import get_reft_model  # type: ignore
+                from pyreft import ReftConfig  # type: ignore
+            from loreft.reft_cl_intervention import ReftCLIntervention
+            from model.ReFTCL import AlphaBank
+
+            # Determine target layers
+            layer_str = getattr(args, "reft_layers", "3;9;18;24")
+            if layer_str.strip() == "all":
+                num_layers = model.config.num_hidden_layers
+                target_layers = list(range(num_layers))
+            else:
+                target_layers = [int(x) for x in layer_str.split(";") if len(x) > 0]
+
+            low_rank = int(getattr(args, "reft_rank", 4))
+            eps = float(getattr(args, "reft_eps", 1e-6))
+            embed_dim = int(getattr(model.config, "hidden_size", None) or getattr(model.config, "d_model", None))
+
+            # Build and register alpha bank so checkpoint alphas load correctly
+            alpha_bank = AlphaBank(num_tasks=len(inference_tasks), alpha_init=0.0)
+            def _get_alpha(i: int):
+                return alpha_bank.alphas[i]
+
+            reps = []
+            for l in target_layers:
+                reps.append({
+                    "layer": l,
+                    "component": "block_output",
+                    "low_rank_dimension": low_rank,
+                    "intervention": ReftCLIntervention(
+                        embed_dim=embed_dim,
+                        low_rank_dimension=low_rank,
+                        num_tasks=len(inference_tasks),
+                        get_alpha=_get_alpha,
+                        eps=eps,
+                        dtype=torch.float32,
+                    )
+                })
+
+            cfg = ReftConfig(representations=reps)
+            model = get_reft_model(model, cfg, set_device=False)
+            # Attach alpha bank under the same name used in training so keys match
+            if not hasattr(model, "reftcl_alpha_bank"):
+                model.add_module("reftcl_alpha_bank", alpha_bank)
         
         # TODO: add adapters
         if args.CL_method == "LFPT5":
@@ -309,10 +403,18 @@ def main():
             from peft import PeftModel
             model = PeftModel.from_pretrained(model, inference_model_path)
 
-        if args.CL_method != "lora" and args.CL_method != "O-LoRA" and args.CL_method != "LFPT5": 
+        if args.CL_method == "REFT-CL":
+            # Load checkpoint into reft-wrapped model
+            ckpt_path = os.path.join(inference_model_path, "pytorch_model.bin")
+            state = torch.load(ckpt_path, map_location="cpu")
+            missing, unexpected = model.load_state_dict(state, strict=False)
+            if len(missing) > 0 or len(unexpected) > 0:
+                print_rank_0(f"[REFT-CL] load_state: missing={len(missing)} unexpected={len(unexpected)}", args.local_rank)
+        elif args.CL_method != "lora" and args.CL_method != "O-LoRA" and args.CL_method != "LFPT5": 
             inference_model = torch.load(os.path.join(inference_model_path, "pytorch_model.bin"))
             for name, param in model.named_parameters():
-                param.data.copy_(inference_model[name])
+                if name in inference_model:
+                    param.data.copy_(inference_model[name])
             del inference_model
 
         model.to(device)
@@ -347,6 +449,15 @@ def main():
 
             # Inference !
             print_rank_0("***** Start inference *****", args.local_rank)
+            # For REFT-CL, activate tasks up to current inference round
+            if args.CL_method == "REFT-CL":
+                base_ref = model.module if hasattr(model, "module") else model
+                try:
+                    for inter in getattr(base_ref, "interventions", {}).values():
+                        if hasattr(inter, "set_active_tasks"):
+                            inter.set_active_tasks(inference_task_id + 1)
+                except Exception:
+                    pass
             sources_sequences, predicted_sequences, ground_truths = prediction(model, infer_dataloader)
             
             # Get Accuracy/ROUGE/BLEU/...

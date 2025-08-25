@@ -447,8 +447,9 @@ def main():
 
     def get_optimizer(model):
         # Split weights in two groups, one with weight decay and the other not.
+        # Give alphas a slightly higher LR to encourage learning (tunable)
         optimizer_grouped_parameters = get_optimizer_grouped_parameters(
-            model, args.weight_decay)
+            model, args.weight_decay, alpha_lr=args.learning_rate * 5.0)
 
         AdamOptimizer = DeepSpeedCPUAdam if args.offload else FusedAdam
         optimizer = AdamOptimizer(optimizer_grouped_parameters,

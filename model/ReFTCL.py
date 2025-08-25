@@ -5,6 +5,18 @@ from typing import Dict
 from model.base_model import CL_Base_Model
 from utils.utils import print_rank_0
 
+# Import locations differ across pyreft versions
+try:
+    from pyreft import get_reft_model, ReftConfig  # modern API
+except Exception:
+    try:
+        print("Using older pyreft API")
+        from pyreft.utils import get_reft_model  # older API
+        from pyreft import ReftConfig
+    except Exception as e:
+        raise ImportError("pyreft get_reft_model/ReftConfig not found; please update pyreft") from e
+from loreft.reft_cl_intervention import ReftCLIntervention
+
 
 class AlphaBank(torch.nn.Module):
     """Holds shared alphas (one per task) so all layers can reference them."""
@@ -18,7 +30,7 @@ class AlphaBank(torch.nn.Module):
 
 class ReFTCL(CL_Base_Model):
     """
-    Continual Learning trainer that composes ReFT interventions per task and shares
+    CL trainer that composes ReFT interventions per task and shares
     a single alpha per task across all layers. It relies on a custom pyreft intervention
     that accumulates normalized edits online.
     """
@@ -38,17 +50,6 @@ class ReFTCL(CL_Base_Model):
 
     def _attach_reft_interventions(self):
         """Wrap self.model with pyreft get_reft_model using our intervention."""
-        # Import locations differ across pyreft versions
-        try:
-            from pyreft import get_reft_model, ReftConfig  # modern API
-        except Exception:
-            try:
-                from pyreft.utils import get_reft_model  # older API
-                from pyreft import ReftConfig
-            except Exception as e:
-                raise ImportError("pyreft get_reft_model/ReftConfig not found; please update pyreft") from e
-        from loreft.reft_cl_intervention import ReftCLIntervention
-
         # Determine target layers from args or defaults
         layer_str = getattr(self.args, "reft_layers", "3;9;18;24")
         if layer_str.strip() == "all":
