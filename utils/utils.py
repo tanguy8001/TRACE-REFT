@@ -202,18 +202,19 @@ def get_optimizer_grouped_parameters(
         },
     ]
 
-    # Optional dedicated group for REFT-CL alpha scalars with custom LR
-    if alpha_lr is not None:
-        alpha_params = [
-            p for n, p in model.named_parameters()
-            if n.startswith("reftcl_alpha_bank.alphas") and p.requires_grad
-        ]
-        if alpha_params:
-            optimizer_grouped_parameters.append({
-                "params": alpha_params,
-                "weight_decay": 0.0,
-                "lr": alpha_lr,
-            })
+
+    alpha_params = [
+        p for n, p in model.named_parameters()
+        if n.startswith("reftcl_alpha_bank.alphas") and p.requires_grad
+    ]
+    # TODO: PROBLEME: VIDE!!!
+    print(f"Alpha params: {alpha_params}")
+    if alpha_params:
+        optimizer_grouped_parameters.append({
+            "params": alpha_params,
+            "weight_decay": 0.0,
+            "lr": alpha_lr,
+        })
     if not optimizer_grouped_parameters[1]["params"]:
         optimizer_grouped_parameters.pop(1)
 

@@ -42,7 +42,7 @@ deepspeed  --include=localhost:0,1 --master_port $port clmm/TRACE/training/main.
   --per_device_eval_batch_size 4 \
   --max_prompt_len 1024 \
   --max_ans_len 512 \
-  --learning_rate 9e-4 \
+  --learning_rate 9e-3 \
   --num_train_epochs 5,3,7,5,3,5,5,7 \
   --gradient_accumulation_steps 8 \
   --lr_scheduler_type cosine \
