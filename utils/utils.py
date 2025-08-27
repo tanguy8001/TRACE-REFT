@@ -167,6 +167,43 @@ def get_optimizer_grouped_parameters(
     lora_name_list=["lora_right_weight", "lora_left_weight"],
     alpha_lr=None,
 ):
+    # Recognize alpha params both before and after wrappers (e.g., DeepSpeed), which prepend 'module.'
+    alpha_name_prefixes = ("reftcl_alpha_bank.alphas", "module.reftcl_alpha_bank.alphas")
+    def _is_alpha_name(name: str) -> bool:
+        try:
+            return any(name.startswith(prefix) for prefix in alpha_name_prefixes)
+        except Exception:
+            return False
+    # Debug: inspect how parameters are named before grouping
+    try:
+        all_named_params = list(model.named_parameters())
+        total_params = len(all_named_params)
+        total_trainable = sum(1 for _, p in all_named_params if getattr(p, 'requires_grad', False))
+        alpha_like = [n for n, _ in all_named_params if ("alpha" in n.lower() or "reft" in n.lower())]
+        trainable_head = [n for n, p in all_named_params if getattr(p, 'requires_grad', False)][:30]
+        print(f"[DEBUG] named_parameters: total={total_params}, trainable={total_trainable}")
+        if alpha_like:
+            preview = ", ".join(alpha_like[:20]) + (" ..." if len(alpha_like) > 20 else "")
+            print(f"[DEBUG] params containing 'alpha' or 'reft' ({len(alpha_like)}): {preview}")
+        else:
+            print("[DEBUG] No params containing 'alpha' or 'reft' found in names.")
+        if trainable_head:
+            print(f"[DEBUG] first trainable params: {', '.join(trainable_head)}")
+        # Try to introspect the alpha bank directly if present
+        alpha_bank = getattr(model, 'reftcl_alpha_bank', None)
+        if alpha_bank is not None and hasattr(alpha_bank, 'alphas'):
+            try:
+                alpha_flags = [p.requires_grad for p in alpha_bank.alphas]
+                expected_names = [f"reftcl_alpha_bank.alphas.{i}" for i, _ in enumerate(alpha_bank.alphas)]
+                print(f"[DEBUG] reftcl_alpha_bank present with {len(alpha_bank.alphas)} alphas; requires_grad={alpha_flags}")
+                print(f"[DEBUG] expected alpha param names head: {', '.join(expected_names[:10])}{' ...' if len(expected_names) > 10 else ''}")
+            except Exception as e:
+                print(f"[DEBUG] reftcl_alpha_bank introspection error: {e}")
+        else:
+            print("[DEBUG] Model has no attribute 'reftcl_alpha_bank' (yet).")
+    except Exception as _dbg_e:
+        print(f"[DEBUG] Error while inspecting named_parameters: {_dbg_e}")
+
     optimizer_grouped_parameters = [
         {
             "params": [
@@ -174,7 +211,7 @@ def get_optimizer_grouped_parameters(
                 if (not any(nd in n for nd in no_decay_name_list)
                     and p.requires_grad
                     and not any(nd in n for nd in lora_name_list)
-                    and not n.startswith("reftcl_alpha_bank.alphas"))
+                    and not _is_alpha_name(n))
             ],
             "weight_decay":
             weight_decay,
@@ -195,7 +232,7 @@ def get_optimizer_grouped_parameters(
                 p for n, p in model.named_parameters()
                 if (any(nd in n for nd in no_decay_name_list)
                     and p.requires_grad
-                    and not n.startswith("reftcl_alpha_bank.alphas"))
+                    and not _is_alpha_name(n))
             ],
             "weight_decay":
             0.0,
@@ -205,10 +242,29 @@ def get_optimizer_grouped_parameters(
 
     alpha_params = [
         p for n, p in model.named_parameters()
-        if n.startswith("reftcl_alpha_bank.alphas") and p.requires_grad
+        if _is_alpha_name(n) and p.requires_grad
     ]
-    # TODO: PROBLEME: VIDE!!!
-    print(f"Alpha params: {alpha_params}")
+    # Fallback: if alpha params are hidden by a wrapper's named_parameters, pull directly from the alpha bank
+    if not alpha_params:
+        try:
+            alpha_bank = getattr(model, 'reftcl_alpha_bank', None)
+            if alpha_bank is not None and hasattr(alpha_bank, 'alphas'):
+                fallback = [p for p in alpha_bank.alphas if getattr(p, 'requires_grad', False)]
+                if fallback:
+                    alpha_params = fallback
+                    print(f"[DEBUG] Using alpha_bank fallback; collected {len(alpha_params)} alpha params for optimizer grouping.")
+        except Exception as _alpha_fb_err:
+            print(f"[DEBUG] alpha_bank fallback failed: {_alpha_fb_err}")
+    # Debug: show how alpha params were resolved for grouping
+    try:
+        debug_alpha_names = [n for n, p in model.named_parameters() if _is_alpha_name(n)]
+        print(f"Alpha params (requires_grad=True) count: {len(alpha_params)}")
+        if debug_alpha_names:
+            print(f"[DEBUG] all alpha param names: {', '.join(debug_alpha_names)}")
+        else:
+            print("[DEBUG] No parameters matched alpha prefixes via startswith.")
+    except Exception:
+        pass
     if alpha_params:
         optimizer_grouped_parameters.append({
             "params": alpha_params,

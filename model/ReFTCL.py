@@ -16,6 +16,7 @@ except Exception:
     except Exception as e:
         raise ImportError("pyreft get_reft_model/ReftConfig not found; please update pyreft") from e
 from loreft.reft_cl_intervention import ReftCLIntervention
+import types
 
 
 class AlphaBank(torch.nn.Module):
@@ -99,6 +100,49 @@ class ReFTCL(CL_Base_Model):
         # Register alpha bank once at the top-level model so params appear only once
         if not hasattr(self.model, "reftcl_alpha_bank"):
             self.model.add_module("reftcl_alpha_bank", self.alpha_bank)
+        # Ensure alpha params appear in named_parameters() prior to DeepSpeed init
+        try:
+            base_model = self.model
+            original_named_parameters = base_model.named_parameters
+            def _named_parameters_with_alpha(self_obj, *args, **kwargs):
+                seen = set()
+                for n, p in original_named_parameters(*args, **kwargs):
+                    seen.add(n)
+                    yield n, p
+                # Derive prefix from args/kwargs if present
+                prefix = ""
+                try:
+                    if 'prefix' in kwargs and isinstance(kwargs['prefix'], str):
+                        prefix = kwargs['prefix']
+                    elif len(args) >= 1 and isinstance(args[0], str):
+                        prefix = args[0]
+                except Exception:
+                    prefix = ""
+                try:
+                    alpha_bank = getattr(self_obj, 'reftcl_alpha_bank', None)
+                    if alpha_bank is not None and hasattr(alpha_bank, 'alphas'):
+                        for i, p in enumerate(alpha_bank.alphas):
+                            base_name = f"reftcl_alpha_bank.alphas.{i}"
+                            full_name = f"{prefix}.{base_name}" if prefix else base_name
+                            if full_name not in seen:
+                                yield full_name, p
+                except Exception:
+                    pass
+            base_model.named_parameters = types.MethodType(_named_parameters_with_alpha, base_model)
+            print("[DEBUG][ReFTCL] Patched model.named_parameters to include alpha bank params.")
+        except Exception as e:
+            print(f"[DEBUG][ReFTCL] Failed to patch named_parameters: {e}")
+        # Debug: inspect parameter names after attaching alpha bank
+        try:
+            all_named = list(self.model.named_parameters())
+            alpha_like = [n for n, _ in all_named if ("alpha" in n.lower() or "reft" in n.lower())]
+            preview = ", ".join(alpha_like[:20]) + (" ..." if len(alpha_like) > 20 else "")
+            print(f"[DEBUG][ReFTCL] params containing 'alpha' or 'reft' after attach: {preview if alpha_like else 'NONE'}")
+            if hasattr(self.alpha_bank, 'alphas'):
+                flags = [p.requires_grad for p in self.alpha_bank.alphas]
+                print(f"[DEBUG][ReFTCL] alpha bank size={len(self.alpha_bank.alphas)}, requires_grad flags={flags}")
+        except Exception as e:
+            print(f"[DEBUG][ReFTCL] Error while listing named_parameters: {e}")
 
     def _set_active_round(self, t: int):
         # Enable tasks 1..t (1-indexed externally) => internally 0..t-1
@@ -134,6 +178,14 @@ class ReFTCL(CL_Base_Model):
             # Alphas 1..t are trainable, t+1..T are frozen
             for j, a in enumerate(self.alpha_bank.alphas):
                 a.requires_grad = (j <= i_task)
+            try:
+                flags = [p.requires_grad for p in self.alpha_bank.alphas]
+                print(f"[DEBUG][ReFTCL] round {round_idx} alpha requires_grad flags: {flags}")
+                # Also preview trainable params that include alpha/reft
+                trainable_alpha = [n for n, p in (self.model.named_parameters()) if p.requires_grad and ("alpha" in n.lower() or "reft" in n.lower())]
+                print(f"[DEBUG][ReFTCL] trainable alpha-like params this round: {trainable_alpha}")
+            except Exception:
+                pass
 
             # Activate tasks up to current round
             self._set_active_round(round_idx)
