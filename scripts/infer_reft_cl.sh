@@ -38,7 +38,7 @@ echo "Port: $port"
 deepspeed --include=localhost:0 --master_port $port clmm/TRACE/inference/infer_single.py \
   --data_path "$DATA_PATH" \
   --data_output_path "$CACHE_PATH" \
-  --inference_tasks C-STANCE \
+  --inference_tasks C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
   --model_name_or_path "$MODEL_PATH" \
   --inference_model_path "$INFERENCE_MODEL_PATH" \
   --inference_batch 4 \

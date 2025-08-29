@@ -8,6 +8,8 @@ from typing import Dict, List, Tuple
 import torch
 
 
+#python clmm/TRACE/scripts/check_reft_alphas.py --output_dir /cluster/scratch/$USER/outputs_LLM-CL/cl/REFT-CL --rounds 0,1,2
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Inspect ReFT-CL alpha parameters across saved rounds and report changes.")
@@ -183,6 +185,8 @@ if __name__ == "__main__":
     alphas = [sd[k].item() for k in sorted(sd) if k.startswith("reftcl_alpha_bank.alphas.")]
     print("num_alphas:", len(alphas), "values:", alphas)
     main()
+
+
 
 
 
