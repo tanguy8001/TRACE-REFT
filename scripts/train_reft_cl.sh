@@ -58,8 +58,7 @@ deepspeed  --include=localhost:0,1 --master_port $port clmm/TRACE/training/main.
   --print_loss \
   --deepspeed \
   --zero_stage 2 \
-  --precision fp32 \
-  --offload \
+  --precision bf16 \
   2>&1 | tee -a "$OUTPUT_DIR"/train.log
 
 
