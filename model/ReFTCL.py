@@ -49,13 +49,25 @@ class ReFTCL(CL_Base_Model):
                 raise ImportError("pyreft get_reft_model/ReftConfig not found; please update pyreft") from e
         from loreft.reft_cl_intervention import ReftCLIntervention
 
-        # Determine target layers from args or defaults
-        layer_str = getattr(self.args, "reft_layers", "3;9;18;24")
-        if layer_str.strip() == "all":
-            num_layers = self.model.config.num_hidden_layers
-            target_layers = list(range(num_layers))
-        else:
-            target_layers = [int(x) for x in layer_str.split(";") if len(x) > 0]
+        # Get task-specific layer configurations
+        task_layer_configs = []
+        for i in range(self.num_tasks):
+            # Try to get task-specific layer config, fall back to generic reft_layers
+            layer_arg_name = f"reft_layer{i+1}"
+            fallback_layer_arg = "reft_layers"
+            
+            layer_str = getattr(self.args, layer_arg_name, None)
+            if layer_str is None:
+                layer_str = getattr(self.args, fallback_layer_arg, "3;9;18;24")
+            
+            if layer_str.strip() == "all":
+                num_layers = self.model.config.num_hidden_layers
+                target_layers = list(range(num_layers))
+            else:
+                target_layers = [int(x) for x in layer_str.split(";") if len(x) > 0]
+            
+            task_layer_configs.append(target_layers)
+            print(f"Task {i+1} ({self.tasks[i]}): layers {target_layers}")
 
         low_rank = int(getattr(self.args, "reft_rank", 4))
         eps = float(getattr(self.args, "reft_eps", 1e-6))
@@ -65,13 +77,11 @@ class ReFTCL(CL_Base_Model):
         # Provide a getter to share one alpha per task across all layers without duplicating params
         def _get_alpha(i: int):
             return self.alpha_bank.alphas[i]
-        for l in target_layers:
-            reps.append({
-                "layer": l,
-                # Use generic block_output to avoid model-specific module paths
-                "component": "block_output",
-                "low_rank_dimension": low_rank,
-                "intervention": ReftCLIntervention(
+        
+        # Create interventions for each task's specific layers
+        for task_idx, target_layers in enumerate(task_layer_configs):
+            for l in target_layers:
+                inter_module = ReftCLIntervention(
                     embed_dim=embed_dim,
                     low_rank_dimension=low_rank,
                     num_tasks=self.num_tasks,
@@ -79,7 +89,15 @@ class ReFTCL(CL_Base_Model):
                     eps=eps,
                     dtype=torch.float32,
                 )
-            })
+                # Tag the module so we can filter by layer during training
+                setattr(inter_module, "target_layer", l)
+                reps.append({
+                    "layer": l,
+                    # Use generic block_output to avoid model-specific module paths
+                    "component": "block_output",
+                    "low_rank_dimension": low_rank,
+                    "intervention": inter_module,
+                })
 
         cfg = ReftConfig(representations=reps)
         # Replace self.model with reft model in-place
@@ -88,6 +106,11 @@ class ReFTCL(CL_Base_Model):
         n_params = self.model.count_parameters(include_model=False)
         n_params_with_model = self.model.count_parameters(include_model=True)
         print(f"Number of trainable parameters with frozen model: {n_params_with_model}. Number of trainable parameters without frozen model: {n_params}.")
+
+        # Store task-layer mapping for training management
+        self.task_layer_mapping = {}
+        for task_idx, target_layers in enumerate(task_layer_configs):
+            self.task_layer_mapping[task_idx] = target_layers
 
         # By default, activate zero tasks (no edit) until training starts
         base_ref = self.model.module if hasattr(self.model, "module") else self.model
@@ -112,6 +135,10 @@ class ReFTCL(CL_Base_Model):
             round_idx = i_task + 1
             print_rank_0(f"[REFT-CL] Begin round {round_idx}/{self.num_tasks} - task {task}", self.args.global_rank)
 
+            # Get layers for current task
+            current_task_layers = self.task_layer_mapping.get(i_task, [])
+            print(f"Training task {i_task+1} on layers: {current_task_layers}")
+
             # Freeze all directions first
             base_ref = self.model.module if hasattr(self.model, "module") else self.model
             for inter in getattr(base_ref, "interventions", {}).values():
@@ -122,13 +149,15 @@ class ReFTCL(CL_Base_Model):
                         for p in block.parameters():
                             p.requires_grad = False
 
-            # Unfreeze current round directions (R_t, W_t, b_t)
+            # Unfreeze current round directions (R_t, W_t, b_t) only for current task's layers
             for inter in getattr(base_ref, "interventions", {}).values():
                 if hasattr(inter, "tasks"):
-                    print(f"Unfreezing {len(inter.tasks)} blocks")
-                    block = inter.tasks[i_task]
-                    for p in block.parameters():
-                        p.requires_grad = True
+                    intervention_layer = getattr(inter, "target_layer", None)
+                    if intervention_layer in current_task_layers:
+                        print(f"Unfreezing task {i_task+1} block for layer {intervention_layer}")
+                        block = inter.tasks[i_task]
+                        for p in block.parameters():
+                            p.requires_grad = True
 
             # Alphas 1..t are trainable, t+1..T are frozen
             for j, a in enumerate(self.alpha_bank.alphas):

@@ -199,7 +199,14 @@ def parse_args():
                 default=None,
                 help='continual learning method used')
     # REFT-CL specific knobs (defaults match user's LoReFT run)
-    parser.add_argument('--reft_layers', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
+    parser.add_argument('--reft_layer1', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
+    parser.add_argument('--reft_layer2', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
+    parser.add_argument('--reft_layer3', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
+    parser.add_argument('--reft_layer4', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
+    parser.add_argument('--reft_layer5', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
+    parser.add_argument('--reft_layer6', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
+    parser.add_argument('--reft_layer7', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
+    parser.add_argument('--reft_layer8', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
     parser.add_argument('--reft_rank', type=int, default=4, help='Low-rank dimension r for REFT')
     parser.add_argument('--reft_eps', type=float, default=1e-6, help='Epsilon for direction normalization')
     # Precision control

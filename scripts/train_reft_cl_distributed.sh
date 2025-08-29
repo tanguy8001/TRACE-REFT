@@ -1,14 +1,10 @@
 #!/bin/bash
-#SBATCH --time=24:00:00
-#SBATCH --gpus-per-node=2
 #SBATCH --partition=gpupr.24h
-#SBATCH --gres=gpumem:38g
-#SBATCH --cpus-per-task=4
-#SBATCH --mem-per-cpu=16g
-
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-
-
+#SBATCH --time=24:00:00
+#SBATCH --gpus-per-node=6
+#SBATCH --gres=gpumem:15g
+#SBATCH --cpus-per-task=24
+#SBATCH --mem-per-cpu=6g
 USERNAME="${USERNAME:-lbarinka}"
 MODEL_NAME="${MODEL_NAME:-llama-2-7b-chat}"
 BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
@@ -36,7 +32,7 @@ echo "Data cache: $DATA_CACHE"
 echo "CL method: $cl_method"
 echo "Port: $port"
 
-deepspeed  --include=localhost:0,1 --master_port $port /cluster/home/lbarinka/trace/training/main.py \
+deepspeed  --include=localhost:0,1,2,3,4,5 --master_port $port /cluster/home/lbarinka/trace/training/main.py \
   --data_path "${DATA_PATH}" \
   --dataset_name C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
   --data_output_path "${DATA_CACHE}" \
@@ -69,7 +65,7 @@ deepspeed  --include=localhost:0,1 --master_port $port /cluster/home/lbarinka/tr
   --print_loss \
   --deepspeed \
   --zero_stage 2 \
-  --precision bf16 \
+  --precision fp32 \
   2>&1 | tee -a "$OUTPUT_DIR"/train.log
 
 
