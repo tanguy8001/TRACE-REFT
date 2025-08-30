@@ -457,6 +457,41 @@ def main():
         optimizer_grouped_parameters = get_optimizer_grouped_parameters(
             model, args.weight_decay)
 
+        # Ensure REFT-CL alpha parameters are included exactly once in optimizer groups.
+        # If the model already registers them, default grouping will catch them; avoid duplicates.
+        try:
+            # Collect alpha parameters from either bank
+            alpha_modules = []
+            if hasattr(model, "reftcl_alpha_bank"):
+                alpha_modules.append(model.reftcl_alpha_bank)
+            if hasattr(model, "alpha_bank"):
+                alpha_modules.append(model.alpha_bank)
+
+            alpha_params = []
+            alpha_param_ids = set()
+            for mod in alpha_modules:
+                for p in mod.parameters(recurse=True):
+                    if p.requires_grad:
+                        pid = id(p)
+                        if pid not in alpha_param_ids:
+                            alpha_param_ids.add(pid)
+                            alpha_params.append(p)
+
+            if alpha_params:
+                # Remove any alpha params that may already be present in default groups
+                for group in optimizer_grouped_parameters:
+                    if "params" in group and isinstance(group["params"], list):
+                        group["params"] = [p for p in group["params"] if id(p) not in alpha_param_ids]
+                # Append a dedicated non-decay group for alphas
+                optimizer_grouped_parameters.append({
+                    "params": alpha_params,
+                    "weight_decay": 0.0,
+                    "lr": args.learning_rate,
+                })
+        except Exception:
+            # Best-effort: continue with default groups on failure
+            pass
+
         AdamOptimizer = DeepSpeedCPUAdam if args.offload else FusedAdam
         optimizer = AdamOptimizer(optimizer_grouped_parameters,
                                 lr=args.learning_rate,

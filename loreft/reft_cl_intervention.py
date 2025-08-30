@@ -65,7 +65,29 @@ class ReftCLIntervention(
         loreft_kwargs["embed_dim"] = self.embed_dim
         self.tasks = nn.ModuleList([LoreftIntervention(**loreft_kwargs) for _ in range(num_tasks)])
 
+<<<<<<< Updated upstream
         # Optional top-level dropout after accumulation
+=======
+        # Ensure alpha parameters are registered on this module so DeepSpeed can find them
+        # and add to the optimizer param groups via model.named_parameters().
+        # If get_alpha returns non-Parameter tensors, register them as buffers.
+        try:
+            self.alpha_bank = nn.ParameterDict()
+            for task_id in self.task_ids:
+                alpha_param = self._get_alpha(task_id)
+                if isinstance(alpha_param, nn.Parameter):
+                    # Attach the same Parameter object so it appears in named_parameters
+                    self.alpha_bank[str(task_id)] = alpha_param
+                else:
+                    # Non-trainable scalar or tensor; keep as buffer
+                    self.register_buffer(f"alpha_{task_id}", torch.as_tensor(alpha_param))
+        except Exception:
+            # Best-effort registration; if anything fails, continue without blocking construction
+            pass
+
+        # Track enabled global task ids
+        self.enabled_task_ids = set()
+>>>>>>> Stashed changes
         self.output_dropout = nn.Dropout(self.dropout_p) if self.dropout_p > 0 else nn.Identity()
 
         # Track how many tasks are active (<= num_tasks)
