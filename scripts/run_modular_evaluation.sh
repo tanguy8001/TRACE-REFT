@@ -25,14 +25,14 @@ export PYTHONPATH="$EVALUATIONS_DIR:$PYTHONPATH"
 # Run the modular Python evaluation script with all datasets
 python3 "$SCRIPT_DIR/run_modular_evaluation.py" \
     --datasets \
-        "$PROJECT_ROOT/predictions_o-lora/results-7-0-C-STANCE.json" \
-        "$PROJECT_ROOT/predictions_o-lora/results-7-1-FOMC.json" \
-        "$PROJECT_ROOT/predictions_o-lora/results-7-2-MeetingBank.json" \
-        "$PROJECT_ROOT/predictions_o-lora/results-7-3-Py150.json" \
-        "$PROJECT_ROOT/predictions_o-lora/results-7-4-ScienceQA.json" \
-        "$PROJECT_ROOT/predictions_o-lora/results-7-5-NumGLUE-cm.json" \
-        "$PROJECT_ROOT/predictions_o-lora/results-7-6-NumGLUE-ds.json" \
-        "$PROJECT_ROOT/predictions_o-lora/results-7-7-20Minuten.json" \
+        "$PROJECT_ROOT/predictions_reftcl/results-7-0-C-STANCE.json" \
+        "$PROJECT_ROOT/predictions_reftcl/results-7-1-FOMC.json" \
+        "$PROJECT_ROOT/predictions_reftcl/results-7-2-MeetingBank.json" \
+        "$PROJECT_ROOT/predictions_reftcl/results-7-3-Py150.json" \
+        "$PROJECT_ROOT/predictions_reftcl/results-7-4-ScienceQA.json" \
+        "$PROJECT_ROOT/predictions_reftcl/results-7-5-NumGLUE-cm.json" \
+        "$PROJECT_ROOT/predictions_reftcl/results-7-6-NumGLUE-ds.json" \
+        "$PROJECT_ROOT/predictions_reftcl/results-7-7-20Minuten.json" \
     --output-dir "$OUTPUT_DIR" \
     --judge-llama \
     --llama-model "meta-llama/Llama-3.2-3B-Instruct"

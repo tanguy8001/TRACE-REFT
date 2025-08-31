@@ -33,323 +33,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class TaskEvaluator(ABC):
-    """Abstract base class for task-specific evaluators."""
-    
-    @abstractmethod
-    def evaluate_answer(self, prompt: str, answer: str, label: str) -> Dict[str, Any]:
-        """Evaluate a single answer for the specific task."""
-        pass
-    
-    @abstractmethod
-    def get_task_name(self) -> str:
-        """Get the name of the task."""
-        pass
-    
-    @abstractmethod
-    def get_label_meanings(self) -> Dict[str, str]:
-        """Get the meaning of each label for this task."""
-        pass
-
-class StanceEvaluator(TaskEvaluator):
-    """Evaluator for Chinese stance detection tasks (C-STANCE)."""
-    
-    def get_task_name(self) -> str:
-        return "Chinese Stance Detection"
-    
-    def get_label_meanings(self) -> Dict[str, str]:
-        return {
-            'A': '支持 (Support)',
-            'B': '反对 (Oppose)', 
-            'C': '中立 (Neutral)'
-        }
-    
-    def evaluate_answer(self, prompt: str, answer: str, label: str) -> Dict[str, Any]:
-        """Evaluate Chinese stance detection answer."""
-        label_meanings = self.get_label_meanings()
-        expected_meaning = label_meanings[label]
-        
-        # Check if answer contains the correct label
-        contains_label = label in answer
-        
-        # Check if answer contains the corresponding Chinese meaning
-        chinese_meaning = False
-        if label == 'A':
-            chinese_meaning = '支持' in answer
-        elif label == 'B':
-            chinese_meaning = '反对' in answer
-        elif label == 'C':
-            chinese_meaning = '中立' in answer
-        
-        # Answer is correct if it contains both label and Chinese meaning
-        is_correct = contains_label and chinese_meaning
-        
-        return {
-            'label': label,
-            'expected_meaning': expected_meaning,
-            'contains_label': contains_label,
-            'contains_meaning': chinese_meaning,
-            'is_correct': is_correct,
-            'score': 1 if is_correct else 0
-        }
-
-class FOMCEvaluator(TaskEvaluator):
-    """Evaluator for FOMC monetary policy stance tasks."""
-    
-    def get_task_name(self) -> str:
-        return "FOMC Monetary Policy Stance"
-    
-    def get_label_meanings(self) -> Dict[str, str]:
-        return {
-            'A': 'dovish',
-            'B': 'hawkish', 
-            'C': 'neutral'
-        }
-    
-    def evaluate_answer(self, prompt: str, answer: str, label: str) -> Dict[str, Any]:
-        """Evaluate FOMC stance detection answer."""
-        label_meanings = self.get_label_meanings()
-        expected_meaning = label_meanings[label]
-        
-        # Check if answer contains the correct label
-        contains_label = label in answer
-        
-        # Check if answer contains the corresponding English meaning
-        english_meaning = False
-        if label == 'A':
-            english_meaning = 'dovish' in answer.lower()
-        elif label == 'B':
-            english_meaning = 'hawkish' in answer.lower()
-        elif label == 'C':
-            english_meaning = 'neutral' in answer.lower()
-        
-        # Answer is correct if it contains both label and English meaning
-        is_correct = contains_label and english_meaning
-        
-        return {
-            'label': label,
-            'expected_meaning': expected_meaning,
-            'contains_label': contains_label,
-            'contains_meaning': english_meaning,
-            'is_correct': is_correct,
-            'score': 1 if is_correct else 0
-        }
-
-class MeetingBankEvaluator(TaskEvaluator):
-    """Evaluator for MeetingBank summarization tasks."""
-    
-    def get_task_name(self) -> str:
-        return "Meeting Transcript Summarization"
-    
-    def get_label_meanings(self) -> Dict[str, str]:
-        return {
-            'summary': 'meeting summary',
-            'transcript': 'meeting transcript'
-        }
-    
-    def evaluate_answer(self, prompt: str, answer: str, label: str) -> Dict[str, Any]:
-        """Evaluate MeetingBank summarization answer."""
-        # For summarization tasks, we check if the answer is a reasonable summary
-        # This is more subjective, so we use heuristics
-        
-        # Check if answer is not empty and has reasonable length
-        has_content = len(answer.strip()) > 10
-        
-        # Check if it contains summary-like content (not just repeating the prompt)
-        contains_summary = not answer.strip().startswith("Write a summary") and not answer.strip().startswith("Meeting transcripts:")
-        
-        # Check if it's not just the prompt repeated
-        is_not_prompt_repeat = len(answer) < len(prompt) * 0.8
-        
-        # Check if it contains meeting-related keywords
-        meeting_keywords = ['meeting', 'council', 'committee', 'bill', 'vote', 'motion', 'agenda']
-        contains_meeting_content = any(keyword in answer.lower() for keyword in meeting_keywords)
-        
-        # Answer is correct if it meets basic summarization criteria
-        is_correct = has_content and contains_summary and is_not_prompt_repeat and contains_meeting_content
-        
-        return {
-            'label': 'summary',
-            'expected_meaning': 'meeting summary',
-            'has_content': has_content,
-            'contains_summary': contains_summary,
-            'is_not_prompt_repeat': is_not_prompt_repeat,
-            'contains_meeting_content': contains_meeting_content,
-            'is_correct': is_correct,
-            'score': 1 if is_correct else 0
-        }
-
-class Py150Evaluator(TaskEvaluator):
-    """Evaluator for Py150 code generation tasks."""
-    
-    def get_task_name(self) -> str:
-        return "Python Code Generation"
-    
-    def get_label_meanings(self) -> Dict[str, str]:
-        return {
-            'code': 'python code',
-            'function': 'python function'
-        }
-    
-    def evaluate_answer(self, prompt: str, answer: str, label: str) -> Dict[str, Any]:
-        """Evaluate Py150 code generation answer."""
-        # For code generation tasks, we check if the answer looks like valid Python code
-        
-        # Check if answer is not empty
-        has_content = len(answer.strip()) > 5
-        
-        # Check if it contains Python code indicators
-        python_indicators = ['def ', 'class ', 'import ', 'from ', 'return ', 'if ', 'for ', 'while ', '=']
-        contains_python_code = any(indicator in answer for indicator in python_indicators)
-        
-        # Check if it's not just the prompt repeated
-        is_not_prompt_repeat = len(answer) < len(prompt) * 0.8
-        
-        # Check if it has reasonable code structure
-        has_code_structure = ('def ' in answer or 'class ' in answer or 'import ' in answer)
-        
-        # Answer is correct if it meets basic code generation criteria
-        is_correct = has_content and contains_python_code and is_not_prompt_repeat and has_code_structure
-        
-        return {
-            'label': 'code',
-            'expected_meaning': 'python code',
-            'has_content': has_content,
-            'contains_python_code': contains_python_code,
-            'is_not_prompt_repeat': is_not_prompt_repeat,
-            'has_code_structure': has_code_structure,
-            'is_correct': is_correct,
-            'score': 1 if is_correct else 0
-        }
-
-class ScienceQAEvaluator(TaskEvaluator):
-    """Evaluator for ScienceQA question answering tasks."""
-    
-    def get_task_name(self) -> str:
-        return "Science Question Answering"
-    
-    def get_label_meanings(self) -> Dict[str, str]:
-        return {
-            'answer': 'science answer',
-            'explanation': 'scientific explanation'
-        }
-    
-    def evaluate_answer(self, prompt: str, answer: str, label: str) -> Dict[str, Any]:
-        """Evaluate ScienceQA answer."""
-        # For science QA tasks, we check if the answer provides a reasonable response
-        
-        # Check if answer is not empty
-        has_content = len(answer.strip()) > 10
-        
-        # Check if it's not just the prompt repeated
-        is_not_prompt_repeat = len(answer) < len(prompt) * 0.8
-        
-        # Check if it contains answer-like content
-        contains_answer = not answer.strip().startswith("Question:") and not answer.strip().startswith("Context:")
-        
-        # Check if it has reasonable length for an answer
-        reasonable_length = 20 < len(answer) < 2000
-        
-        # Answer is correct if it meets basic QA criteria
-        is_correct = has_content and contains_answer and is_not_prompt_repeat and reasonable_length
-        
-        return {
-            'label': 'answer',
-            'expected_meaning': 'science answer',
-            'has_content': has_content,
-            'contains_answer': contains_answer,
-            'is_not_prompt_repeat': is_not_prompt_repeat,
-            'reasonable_length': reasonable_length,
-            'is_correct': is_correct,
-            'score': 1 if is_correct else 0
-        }
-
-class NumGLUEEvaluator(TaskEvaluator):
-    """Evaluator for NumGLUE mathematical reasoning tasks."""
-    
-    def get_task_name(self) -> str:
-        return "Mathematical Reasoning (NumGLUE)"
-    
-    def get_label_meanings(self) -> Dict[str, str]:
-        return {
-            'solution': 'mathematical solution',
-            'reasoning': 'mathematical reasoning'
-        }
-    
-    def evaluate_answer(self, prompt: str, answer: str, label: str) -> Dict[str, Any]:
-        """Evaluate NumGLUE mathematical reasoning answer."""
-        # For math tasks, we check if the answer provides mathematical reasoning
-        
-        # Check if answer is not empty
-        has_content = len(answer.strip()) > 5
-        
-        # Check if it's not just the prompt repeated
-        is_not_prompt_repeat = len(answer) < len(prompt) * 0.8
-        
-        # Check if it contains mathematical content
-        math_indicators = ['=', '+', '-', '*', '/', '(', ')', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-        contains_math = any(indicator in answer for indicator in math_indicators)
-        
-        # Check if it has reasonable length
-        reasonable_length = 10 < len(answer) < 1000
-        
-        # Answer is correct if it meets basic math reasoning criteria
-        is_correct = has_content and contains_math and is_not_prompt_repeat and reasonable_length
-        
-        return {
-            'label': 'solution',
-            'expected_meaning': 'mathematical solution',
-            'has_content': has_content,
-            'contains_math': contains_math,
-            'is_not_prompt_repeat': is_not_prompt_repeat,
-            'reasonable_length': reasonable_length,
-            'is_correct': is_correct,
-            'score': 1 if is_correct else 0
-        }
-
-class TwentyMinutenEvaluator(TaskEvaluator):
-    """Evaluator for 20Minuten news summarization tasks."""
-    
-    def get_task_name(self) -> str:
-        return "20Minuten News Summarization"
-    
-    def get_label_meanings(self) -> Dict[str, str]:
-        return {
-            'summary': 'news summary',
-            'article': 'news article'
-        }
-    
-    def evaluate_answer(self, prompt: str, answer: str, label: str) -> Dict[str, Any]:
-        """Evaluate 20Minuten news summarization answer."""
-        # For news summarization tasks, we check if the answer provides a reasonable summary
-        
-        # Check if answer is not empty
-        has_content = len(answer.strip()) > 10
-        
-        # Check if it's not just the prompt repeated
-        is_not_prompt_repeat = len(answer) < len(prompt) * 0.8
-        
-        # Check if it contains news-like content
-        news_indicators = ['news', 'article', 'report', 'story', 'event', 'announcement']
-        contains_news_content = any(keyword in answer.lower() for keyword in news_indicators)
-        
-        # Check if it has reasonable length for a summary
-        reasonable_length = 20 < len(answer) < 1500
-        
-        # Answer is correct if it meets basic news summarization criteria
-        is_correct = has_content and contains_news_content and is_not_prompt_repeat and reasonable_length
-        
-        return {
-            'label': 'summary',
-            'expected_meaning': 'news summary',
-            'has_content': has_content,
-            'contains_news_content': contains_news_content,
-            'is_not_prompt_repeat': is_not_prompt_repeat,
-            'reasonable_length': reasonable_length,
-            'is_correct': is_correct,
-            'score': 1 if is_correct else 0
-        }
-
 class LlamaJudge:
     """Helper to judge (prompt, answer, label) correctness using a Llama model."""
 
@@ -411,49 +94,11 @@ class LlamaJudge:
         return False
 
 
-    def judge_generation(self, prompt: str, answer: str, task_type: str) -> bool:
-        if torch is None:
-            return False
-        instruction = (
-            "You are a strict evaluator. Determine if the answer adequately fulfills the task requirements.\n"
-            'Return ONLY a JSON object with this exact format: {"equal": true} or {"equal": false}.\n'
-            "Do not include any other text."
-        )
-        text = (
-            f"{instruction}\n\n"
-            f"Task: {task_type}\n"
-            f"Prompt:\n{prompt}\n\n"
-            f"Answer:\n{answer}\n"
-        )
-        inputs = self.tokenizer(text, return_tensors="pt")
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=64,
-                pad_token_id=self.tokenizer.eos_token_id
-            )
-        decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        generated = decoded[len(text):].strip()
-        match = re.search(r'\{\s*"equal"\s*:\s*(true|false)\s*\}', generated, flags=re.IGNORECASE)
-        if match:
-            return match.group(1).lower() == "true"
-        return False
 
 class DatasetEvaluator:
     """Main evaluator that can handle multiple datasets and tasks."""
     
     def __init__(self, llama_judge: Optional[LlamaJudge] = None):
-        self.evaluators = {
-            'C-STANCE': StanceEvaluator(),
-            'FOMC': FOMCEvaluator(),
-            'MeetingBank': MeetingBankEvaluator(),
-            'Py150': Py150Evaluator(),
-            'ScienceQA': ScienceQAEvaluator(),
-            'NumGLUE-cm': NumGLUEEvaluator(),
-            'NumGLUE-ds': NumGLUEEvaluator(),
-            '20Minuten': TwentyMinutenEvaluator()
-        }
         self.llama_judge = llama_judge
     
     def detect_task_type(self, filename: str) -> str:
@@ -512,135 +157,71 @@ class DatasetEvaluator:
             'total_evaluation_time': 0.0
         }
         
-        # For tasks without labels (like summarization), we can't do label-based accuracy
-        if task_type in ['MeetingBank', 'Py150', 'ScienceQA', 'NumGLUE-cm', 'NumGLUE-ds', '20Minuten']:
-            logger.info("Processing generation tasks (no labels)...")
-            # These are generation tasks, evaluate each answer individually
-            for i, (prompt, answer, label) in enumerate(parsed_data):
-                sample_start = time.time()
-                
-                if (i + 1) % 10 == 0:
-                    logger.info(f"Processing sample {i+1}/{len(parsed_data)}...")
-                
-                # Evaluate this sample (use Llama judge if available)
-                if self.llama_judge is not None:
-                    logger.debug(f"Using Llama judge for sample {i+1}")
-                    judge_start = time.time()
-                    equal = self.llama_judge.judge_generation(prompt, answer, task_type)
-                    judge_time = time.time() - judge_start
-                    logger.debug(f"Llama judge completed in {judge_time:.2f}s")
-                    
-                    evaluation_result = {
-                        'is_correct': equal,
-                        'score': 1 if equal else 0,
-                        'judge': 'llama',
-                        'judge_time': judge_time
-                    }
-                else:
-                    logger.debug(f"Using pattern-based evaluation for sample {i+1}")
-                    eval_start = time.time()
-                    evaluation_result = evaluator.evaluate_answer(prompt, answer, "")
-                    eval_time = time.time() - eval_start
-                    evaluation_result['evaluation_time'] = eval_time
-                    logger.debug(f"Pattern evaluation completed in {eval_time:.2f}s")
-                
-                # Update counters
-                if evaluation_result['is_correct']:
-                    results['correct_samples'] += 1
-                    logger.debug(f"  Sample {i+1}: CORRECT ✓")
-                else:
-                    results['incorrect_samples'] += 1
-                    logger.debug(f"  Sample {i+1}: INCORRECT ✗")
-                
-                # Store detailed analysis
-                sample_analysis = {
-                    'sample_id': i + 1,
-                    'prompt_snippet': prompt[:150] + "..." if len(prompt) > 150 else prompt,
-                    'answer_snippet': answer[:200] + "..." if len(answer) > 200 else answer,
-                    'evaluation': evaluation_result
-                }
-                results['detailed_analysis'].append(sample_analysis)
-                
-                # Update timing
-                sample_time = time.time() - sample_start
-                results['total_evaluation_time'] += sample_time
-                
-                # Progress update every 10 samples
-                if (i + 1) % 10 == 0:
-                    progress = (i + 1) / len(parsed_data) * 100
-                    avg_time_per_sample = results['total_evaluation_time'] / (i + 1)
-                    estimated_remaining = avg_time_per_sample * (len(parsed_data) - i - 1)
-                    logger.info(f"Progress: {progress:.1f}% ({i+1}/{len(parsed_data)}) - Avg: {avg_time_per_sample:.2f}s/sample - ETA: {estimated_remaining:.1f}s")
-        else:
-            logger.info("Processing classification tasks (with labels)...")
-            # These are classification tasks with labels
-            results['accuracy_by_label'] = {'A': {'total': 0, 'correct': 0}, 'B': {'total': 0, 'correct': 0}, 'C': {'total': 0, 'correct': 0}}
+        logger.info("Processing classification tasks (with labels)...")
+        # These are classification tasks with labels
+        results['accuracy_by_label'] = {'A': {'total': 0, 'correct': 0}, 'B': {'total': 0, 'correct': 0}, 'C': {'total': 0, 'correct': 0}}
             
-            for i, (prompt, answer, label) in enumerate(parsed_data):
-                sample_start = time.time()
+        for i, (prompt, answer, label) in enumerate(parsed_data):
+            sample_start = time.time()
                 
-                if (i + 1) % 10 == 0:
-                    logger.info(f"Processing sample {i+1}/{len(parsed_data)} (Label: {label})...")
+            if (i + 1) % 10 == 0:
+                logger.info(f"Processing sample {i+1}/{len(parsed_data)} (Label: {label})...")
                 
-                # Evaluate this sample (prefer Llama judge if available)
-                if self.llama_judge is not None and label:
-                    logger.debug(f"Using Llama judge for sample {i+1} with label {label}")
-                    judge_start = time.time()
-                    label_meaning = evaluator.get_label_meanings().get(label, '')
-                    label_for_judge = f"{label} ({label_meaning})" if label_meaning else label
-                    equal = self.llama_judge.judge_equal(prompt, answer, label_for_judge, task_type)
-                    judge_time = time.time() - judge_start
-                    logger.debug(f"Llama judge completed in {judge_time:.2f}s")
+            # Evaluate this sample (prefer Llama judge if available)
+            if self.llama_judge is not None and label:
+                logger.debug(f"Using Llama judge for sample {i+1} with label {label}")
+                judge_start = time.time()
+                label_meaning = evaluator.get_label_meanings().get(label, '')
+                label_for_judge = f"{label} ({label_meaning})" if label_meaning else label
+                equal = self.llama_judge.judge_equal(prompt, answer, label_for_judge, task_type)
+                judge_time = time.time() - judge_start
+                logger.debug(f"Llama judge completed in {judge_time:.2f}s")
                     
-                    evaluation_result = {
-                        'label': label,
-                        'expected_meaning': evaluator.get_label_meanings().get(label, ''),
-                        'is_correct': equal,
-                        'score': 1 if equal else 0,
-                        'judge': 'llama',
-                        'judge_time': judge_time
-                    }
-                else:
-                    logger.debug(f"Using pattern-based evaluation for sample {i+1} with label {label}")
-                    eval_start = time.time()
-                    evaluation_result = evaluator.evaluate_answer(prompt, answer, label)
-                    eval_time = time.time() - eval_start
-                    evaluation_result['evaluation_time'] = eval_time
-                    logger.debug(f"Pattern evaluation completed in {eval_time:.2f}s")
-                
-                # Update counters
-                if evaluation_result['is_correct']:
-                    results['correct_samples'] += 1
-                    logger.debug(f"  Sample {i+1}: CORRECT ✓")
-                else:
-                    results['incorrect_samples'] += 1
-                    logger.debug(f"  Sample {i+1}: INCORRECT ✗")
-                
-                # Store detailed analysis
-                sample_analysis = {
-                    'sample_id': i + 1,
-                    'prompt_snippet': prompt[:150] + "..." if len(prompt) > 150 else prompt,
-                    'answer_snippet': answer[:200] + "..." if len(answer) > 200 else answer,
-                    'evaluation': evaluation_result
+                evaluation_result = {
+                    'label': label,
+                    'expected_meaning': evaluator.get_label_meanings().get(label, ''),
+                    'is_correct': equal,
+                    'score': 1 if equal else 0,
+                    'judge': 'llama',
+                    'judge_time': judge_time
                 }
-                results['detailed_analysis'].append(sample_analysis)
+            else:
+                logger.debug(f"Using pattern-based evaluation for sample {i+1} with label {label}")
+                logger.info("NO LABEL DETECTED")
+                 
+            # Update counters
+            if evaluation_result['is_correct']:
+                results['correct_samples'] += 1
+                logger.debug(f"  Sample {i+1}: CORRECT ✓")
+            else:
+                results['incorrect_samples'] += 1
+                logger.debug(f"  Sample {i+1}: INCORRECT ✗")
                 
-                # Update label-specific accuracy
-                if label in results['accuracy_by_label']:
-                    results['accuracy_by_label'][label]['total'] += 1
-                    if evaluation_result['is_correct']:
-                        results['accuracy_by_label'][label]['correct'] += 1
+            # Store detailed analysis
+            sample_analysis = {
+                'sample_id': i + 1,
+                'prompt_snippet': prompt[:150] + "..." if len(prompt) > 150 else prompt,
+                'answer_snippet': answer[:200] + "..." if len(answer) > 200 else answer,
+                'evaluation': evaluation_result
+            }
+            results['detailed_analysis'].append(sample_analysis)
                 
-                # Update timing
-                sample_time = time.time() - sample_start
-                results['total_evaluation_time'] += sample_time
+            # Update label-specific accuracy
+            if label in results['accuracy_by_label']:
+                results['accuracy_by_label'][label]['total'] += 1
+                if evaluation_result['is_correct']:
+                    results['accuracy_by_label'][label]['correct'] += 1
                 
-                # Progress update every 10 samples
-                if (i + 1) % 10 == 0:
-                    progress = (i + 1) / len(parsed_data) * 100
-                    avg_time_per_sample = results['total_evaluation_time'] / (i + 1)
-                    estimated_remaining = avg_time_per_sample * (len(parsed_data) - i - 1)
-                    logger.info(f"Progress: {progress:.1f}% ({i+1}/{len(parsed_data)}) - Avg: {avg_time_per_sample:.2f}s/sample - ETA: {estimated_remaining:.1f}s")
+            # Update timing
+            sample_time = time.time() - sample_start
+            results['total_evaluation_time'] += sample_time
+                
+            # Progress update every 10 samples
+            if (i + 1) % 10 == 0:
+                progress = (i + 1) / len(parsed_data) * 100
+                avg_time_per_sample = results['total_evaluation_time'] / (i + 1)
+                estimated_remaining = avg_time_per_sample * (len(parsed_data) - i - 1)
+                logger.info(f"Progress: {progress:.1f}% ({i+1}/{len(parsed_data)}) - Avg: {avg_time_per_sample:.2f}s/sample - ETA: {estimated_remaining:.1f}s")
         
         # Calculate overall accuracy
         if results['total_samples'] > 0:
