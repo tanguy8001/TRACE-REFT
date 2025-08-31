@@ -6,19 +6,19 @@
 #SBATCH --gres=gpumem:38g
 #SBATCH --mem-per-cpu=16g
 
-source /cluster/home/${USERNAME:-tdieudonne}/miniconda3/etc/profile.d/conda.sh
+source /cluster/home/${USERNAME}/miniconda3_new/etc/profile.d/conda.sh
 module load eth_proxy
 module load stack/2024-06 cuda/12.8.0
-conda activate trace
+conda activate reftcl 
 
 mkdir -p /cluster/home/tdieudonne/clmm/TRACE/logs
 
 # User-configurable variables
-USERNAME="${USERNAME:-tdieudonne}"
+USERNAME="${USERNAME:-lbarinka}"
 MODEL_NAME="${MODEL_NAME:-llama-2-7b-chat}"
 BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
 
-cd /cluster/home/${USERNAME}/clmm/TRACE
+cd /cluster/home/${USERNAME}/trace
 
 cl_method="O-LoRA"
 port=$(shuf -i25000-30000 -n1)
