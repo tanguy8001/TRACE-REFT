@@ -47,6 +47,7 @@ from utils.ds_utils import get_train_ds_config
 from utils.model.model_utils import create_hf_model
 from evaluations import eval_ScienceQA, eval_MeetingBank, eval_PapyrusF, eval_CStance, eval_Py150, eval_FOMC, eval_NumGLUE_cm, eval_NumGLUE_ds, eval_20Minuten # to be continued
 from training.params import Method2Class, AllDatasetName
+from model.ReFTCL import AlphaBank
 
 from model.Replay.LFPT5 import getInitialPrompt
 from model.Dynamic_network.PP import PP, convert_PP_model
@@ -143,6 +144,18 @@ def parse_args():
     parser.add_argument('--CL_method',
             default=None,
             help='continual learning method used')
+
+    # ReFT-CL inference knobs (aligned with training defaults)
+    parser.add_argument('--reft_layer1', type=str, default='3;9;18;24')
+    parser.add_argument('--reft_layer2', type=str, default='3;9;18;24')
+    parser.add_argument('--reft_layer3', type=str, default='3;9;18;24')
+    parser.add_argument('--reft_layer4', type=str, default='3;9;18;24')
+    parser.add_argument('--reft_layer5', type=str, default='3;9;18;24')
+    parser.add_argument('--reft_layer6', type=str, default='3;9;18;24')
+    parser.add_argument('--reft_layer7', type=str, default='3;9;18;24')
+    parser.add_argument('--reft_layer8', type=str, default='3;9;18;24')
+    parser.add_argument('--reft_rank', type=int, default=4)
+    parser.add_argument('--reft_eps', type=float, default=1e-6)
 
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
@@ -270,6 +283,64 @@ def main():
                 elif name.find("lora_") != -1:
                     param.requires_grad = False
 
+        if args.CL_method == "REFT-CL":
+            # Reconstruct pyreft wrapper and load saved weights for each round
+            try:
+                from pyreft import get_reft_model, ReftConfig
+            except Exception:
+                from pyreft.utils import get_reft_model  # type: ignore
+                from pyreft import ReftConfig  # type: ignore
+            from loreft.reft_cl_intervention import ReftCLIntervention
+
+            num_tasks = len(inference_tasks)
+            low_rank = int(getattr(args, "reft_rank", 4))
+            eps = float(getattr(args, "reft_eps", 1e-6))
+            embed_dim = int(getattr(model.config, "hidden_size", None) or getattr(model.config, "d_model", None))
+
+            alpha_bank = AlphaBank(num_tasks, alpha_init=0.1)
+
+            reps = []
+            for task_idx in range(num_tasks):
+                layer_arg_name = f"reft_layer{task_idx+1}"
+                layer_str = getattr(args, layer_arg_name, "3;9;18;24")
+                if str(layer_str).strip() == "all":
+                    n_layers = model.config.num_hidden_layers
+                    target_layers = list(range(n_layers))
+                else:
+                    target_layers = [int(x) for x in str(layer_str).split(";") if len(x) > 0]
+                for l in target_layers:
+                    inter_module = ReftCLIntervention(
+                        embed_dim=embed_dim,
+                        low_rank_dimension=low_rank,
+                        num_tasks=num_tasks,
+                        get_alpha=lambda i, bank=alpha_bank: bank.alphas[i],
+                        eps=eps,
+                        dtype=torch.float32,
+                    )
+                    setattr(inter_module, "target_layer", l)
+                    reps.append({
+                        "layer": l,
+                        "component": "block_output",
+                        "low_rank_dimension": low_rank,
+                        "intervention": inter_module,
+                    })
+            cfg = ReftConfig(representations=reps)
+            model = get_reft_model(model, cfg, set_device=False)
+
+            if not hasattr(model, "reftcl_alpha_bank"):
+                model.add_module("reftcl_alpha_bank", alpha_bank)
+
+            # Load the saved state for this round
+            state = torch.load(os.path.join(inference_model_path, "pytorch_model.bin"), map_location="cpu")
+            _missing, _unexpected = model.load_state_dict(state, strict=False)
+            del state
+
+            # Activate tasks up to and including current round (1-indexed for humans)
+            base_ref = model.module if hasattr(model, "module") else model
+            for inter in getattr(base_ref, "interventions", {}).values():
+                if hasattr(inter, "set_active_tasks"):
+                    inter.set_active_tasks(round + 1)
+
         if args.CL_method == "OGD":
             from peft import get_peft_model, LoraConfig, TaskType
             peft_config = LoraConfig(
@@ -309,13 +380,21 @@ def main():
             from peft import PeftModel
             model = PeftModel.from_pretrained(model, inference_model_path)
 
-        if args.CL_method != "lora" and args.CL_method != "O-LoRA" and args.CL_method != "LFPT5": 
+        if args.CL_method not in ("lora", "O-LoRA", "LFPT5", "REFT-CL"): 
             inference_model = torch.load(os.path.join(inference_model_path, "pytorch_model.bin"))
             for name, param in model.named_parameters():
                 param.data.copy_(inference_model[name])
             del inference_model
 
         model.to(device)
+
+        # Log REFT-CL alphas for this round
+        if args.CL_method == "REFT-CL" and hasattr(model, "reftcl_alpha_bank"):
+            try:
+                alpha_vals = [float(a.detach().cpu().item()) for a in model.reftcl_alpha_bank.alphas]
+            except Exception:
+                alpha_vals = [float(a.data.detach().cpu().item()) for a in model.reftcl_alpha_bank.alphas]
+            print_rank_0(f"[REFT-CL] Round {round} active tasks 1..{round+1} | alphas={alpha_vals[:round+1]}", args.local_rank)
 
         for inference_task_id in range(round+1):    # evaluation for previous tasks in a single round
             inference_task = inference_tasks[inference_task_id]

@@ -37,14 +37,14 @@ import traceback
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-REPO_ID = "meta-llama/Llama-2-7b-chat-hf"   # or 'yahma/llama-7b-hf'
-SAVE_DIR = "/cluster/scratch/tdieudonne/initial_model/llama-2-7b-chat"
+REPO_ID = "meta-llama/Llama-3.2-3b-chat-hf"   # or 'yahma/llama-7b-hf'
+SAVE_DIR = "/cluster/scratch/lbarinka/initial_model/meta-llama/Llama-3.2-3b-chat-hf"
 
 
 def set_cache_env_if_missing():
     # Prefer scratch for large HF downloads to avoid filling $HOME
     if not os.environ.get("HF_HOME"):
-        os.environ["HF_HOME"] = "/cluster/scratch/tdieudonne/hf_home"
+        os.environ["HF_HOME"] = "/cluster/scratch/lbarinka/hf_home"
     if not os.environ.get("HF_HUB_CACHE"):
         os.environ["HF_HUB_CACHE"] = os.path.join(os.environ["HF_HOME"], "hub")
     if not os.environ.get("TRANSFORMERS_CACHE"):
