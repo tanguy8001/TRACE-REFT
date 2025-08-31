@@ -78,7 +78,7 @@ def test_generation(local_dir: str):
     print(f"\nLoading from local dir for sanity test: {local_dir}")
     tokenizer = AutoTokenizer.from_pretrained(local_dir, local_files_only=True, trust_remote_code=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    torch_dtype = torch.float16 if device == "cuda" else torch.float32
+    torch_dtype = torch.bfloat16 if device == "cuda" else torch.float32
     model = AutoModelForCausalLM.from_pretrained(
         local_dir,
         local_files_only=True,
@@ -89,15 +89,25 @@ def test_generation(local_dir: str):
     if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    prompt = "Hello, my name is"
+    #prompt = "Hello, my name is"
+    prompt = "What's the answer chosen here by the respondent (give the final answer only): \
+        nB. Which type of tree do the squirrels feed from most often? \
+        \n\nReasons:\n\n* Jayce has access to a tree to hang the feeders from, \
+        which means he can observe the squirrels' feeding behavior in a natural setting.\n* \
+            By observing which type of tree the squirrels feed from most often, Jayce can infer \
+                information about the squirrels' preferences and habits, such as whether they prefer \
+                     certain types of trees for food or shelter.\n* This question allows Jayce \
+                        to investigate a specific aspect of the squirrels' behavior, which can \
+                            help him answer his initial question about what factors affect which\
+                                 foods squirrels choose to collect."
     inputs = tokenizer(prompt, return_tensors="pt")
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
     print("Generating output...")
     outputs = model.generate(
         **inputs,
         max_new_tokens=20,
-        do_sample=True,
-        temperature=0.7,
+        do_sample=False,
+        temperature=None,
         pad_token_id=tokenizer.pad_token_id,
     )
     print("Generated text:")
@@ -106,9 +116,9 @@ def test_generation(local_dir: str):
 
 if __name__ == "__main__":
     set_cache_env_if_missing()
-    if not os.path.isdir(SAVE_DIR) or not os.listdir(SAVE_DIR):
-        download_and_save(REPO_ID, SAVE_DIR)
-    else:
-        print(f"Found existing local model at {SAVE_DIR}. Skipping download.")
+    #if not os.path.isdir(SAVE_DIR) or not os.listdir(SAVE_DIR):
+    #    download_and_save(REPO_ID, SAVE_DIR)
+    #else:
+    #    print(f"Found existing local model at {SAVE_DIR}. Skipping download.")
     test_generation(SAVE_DIR)
 

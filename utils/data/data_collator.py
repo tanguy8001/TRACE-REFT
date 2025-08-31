@@ -75,6 +75,19 @@ class DataCollator:
             gts.append(label)
 
             if not self.inference:
+                # Enforce answer-only behavior during training to align behavior with inference
+                if self.task in ("FOMC", "C-STANCE"):
+                    instruction += "\nAnswer with a single letter (A/B/C) only. Do not explain."
+                elif self.task == "ScienceQA":
+                    instruction += "\nAnswer with a single letter (A/B/C/D) only. Do not explain."
+                elif self.task in ("NumGLUE-cm", "NumGLUE-ds"):
+                    instruction += "\nProvide the final numeric answer only (digits and optional decimal). Do not include units or explanation."
+                elif self.task == "MeetingBank":
+                    instruction += "\nWrite the summary only. Do not add headings or commentary."
+                elif self.task == "Py150":
+                    instruction += "\nOutput code only. Do not include explanations or backticks."
+                elif self.task == "20Minuten":
+                    instruction += "\nOutput only the simplified German paragraph. No explanations."
                 tokenized_label = self.tokenize(label, limit_len, add_bos_token=False, add_eos_token=True)
                 tokenize_source = self.tokenize(instruction + label, limit_len, add_bos_token=True, add_eos_token=True)
                 label_lens.append(len(tokenized_label["input_ids"]))
@@ -97,6 +110,19 @@ class DataCollator:
                     if self.task!="Py150": #Py150不带prompt
                         instruction = instruction[len(TASK_PROMT[self.task]):]
                     instruction = task_prompt+instruction
+                # Enforce answer-only outputs for classification-style tasks at inference
+                if self.task in ("FOMC", "C-STANCE"):
+                    instruction += "\nAnswer with a single letter (A/B/C) only. Do not explain."
+                elif self.task == "ScienceQA":
+                    instruction += "\nAnswer with a single letter (A/B/C/D) only. Do not explain."
+                elif self.task in ("NumGLUE-cm", "NumGLUE-ds"):
+                    instruction += "\nProvide the final numeric answer only (digits and optional decimal). Do not include units or explanation."
+                elif self.task == "MeetingBank":
+                    instruction += "\nWrite the summary only. Do not add headings or commentary."
+                elif self.task == "Py150":
+                    instruction += "\nOutput code only. Do not include explanations or backticks."
+                elif self.task == "20Minuten":
+                    instruction += "\nOutput only the simplified German paragraph. No explanations."
                 tokenize_source = self.tokenize(instruction, limit_len, add_bos_token=True, add_eos_token=False)
                 tokenized_sources.append(tokenize_source)
 

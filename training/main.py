@@ -391,7 +391,8 @@ def main():
             max_prompt_len=args.max_prompt_len,
             max_ans_len=args.max_ans_len,
             pad_to_multiple_of=8,
-            inference=False
+            inference=False,
+            task=dataset
         )
         inf_data_collator = DataCollator(
             tokenizer,
@@ -400,7 +401,8 @@ def main():
             max_prompt_len=args.max_prompt_len,
             max_ans_len=args.max_ans_len,
             pad_to_multiple_of=8,
-            inference=True
+            inference=True,
+            task=dataset
         )
                 
 

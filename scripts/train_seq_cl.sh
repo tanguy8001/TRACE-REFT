@@ -18,7 +18,7 @@ conda activate trace
 
 cd /cluster/home/${USERNAME}/clmm/TRACE
 
-cl_method="O-LoRA"
+cl_method="EWC"
 port=$(shuf -i25000-30000 -n1)
 
 # Paths customized for this environment
@@ -60,5 +60,6 @@ deepspeed --include=localhost:0 --master_port $port training/main.py \
     --deepspeed \
     --print_loss \
     --CL_method "$cl_method" \
+    --precision bf16 \
     --output_dir "$OUTPUT_DIR" 2>&1 | tee -a "$OUTPUT_DIR"/train.log
 
