@@ -10,12 +10,12 @@ set -euo pipefail
 USERNAME="${USERNAME:-tdieudonne}"
 MODEL_NAME="${MODEL_NAME:-llama-2-7b-chat}"
 BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
-cl_method="base"
+cl_method="REFT-CL"
 port=$(shuf -i25000-30000 -n1)
 
 DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_${BENCHMARK_SIZE}"
 MODEL_PATH="/cluster/scratch/${USERNAME}/initial_model/${MODEL_NAME}"
-OUTPUT_DIR="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}"
+OUTPUT_DIR="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}_sysprompt"
 DATA_CACHE="/cluster/scratch/${USERNAME}/reft_cl_outputs"
 mkdir -p "$OUTPUT_DIR"
 mkdir -p "$DATA_CACHE"
@@ -65,17 +65,12 @@ deepspeed  --include=localhost:0,1,2 --master_port $port clmm/TRACE/training/mai
 
 DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_${BENCHMARK_SIZE}"
 MODEL_PATH="/cluster/scratch/${USERNAME}/initial_model/${MODEL_NAME}"
-INFERENCE_MODEL_PATH="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}"
+INFERENCE_MODEL_PATH="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}_sysprompt"
 INFER_OUTPUT_PATH="${INFERENCE_MODEL_PATH}/predictions"
 CACHE_PATH="/cluster/scratch/${USERNAME}/TRACE_cache"
 
 mkdir -p "$INFER_OUTPUT_PATH"
 mkdir -p "/cluster/home/${USERNAME}/clmm/TRACE/logs"
-
-source /cluster/home/${USERNAME}/miniconda3/etc/profile.d/conda.sh
-module load eth_proxy
-module load stack/2024-06 cuda/12.8.0
-conda activate reftcl
 
 echo "Starting $cl_method inference with the following parameters:"
 echo "Data path: $DATA_PATH"

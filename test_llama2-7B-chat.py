@@ -1,45 +1,11 @@
-#from transformers import T5ForConditionalGeneration, T5Tokenizer
-#import os
-#
-#save_dir = "initial_model"
-#os.makedirs(save_dir, exist_ok=True)
-#
-## Disable model parallelism checks that can trigger DeepSpeed logic
-#import transformers.modeling_utils as modeling_utils
-#modeling_utils.is_torch_available = lambda: True
-#modeling_utils.unwrap_model = lambda x, **kwargs: x  # Bypass wrapping
-#
-## Load and save
-#model = T5ForConditionalGeneration.from_pretrained("t5-large")
-#tokenizer = T5Tokenizer.from_pretrained("t5-large")
-#
-#model.save_pretrained(save_dir)
-#tokenizer.save_pretrained(save_dir)
-#import os
-#
-## Must be set before importing transformers
-#os.environ["HF_HOME"] = "/cluster/scratch/tdieudonne/hf_home"
-#
-#from transformers import AutoModelForCausalLM, AutoTokenizer
-#
-#save_dir = "/cluster/scratch/tdieudonne/initial_model/llama-7b-hf"
-#repo_id = "yahma/llama-7b-hf"
-#
-#tok = AutoTokenizer.from_pretrained(repo_id, trust_remote_code=True)
-#model = AutoModelForCausalLM.from_pretrained(repo_id, trust_remote_code=True)
-#
-#tok.save_pretrained(save_dir)
-#model.save_pretrained(save_dir)
-
 import os
 import sys
 import traceback
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-#REPO_ID = "meta-llama/Llama-3.2-3B-Instruct"
 REPO_ID ="meta-llama/Llama-2-7b-chat-hf"
-SAVE_DIR = "/cluster/scratch/tdieudonne/initial_model/llama-3.2-3B-Instruct"
+SAVE_DIR = "/cluster/scratch/tdieudonne/initial_model/llama-2-7b-chat-hf"
 
 
 def set_cache_env_if_missing():
@@ -99,16 +65,6 @@ def test_generation(local_dir: str):
             "- Do NOT include units or explanations.\n"
     )
     answer_text = "there are 3 frogs in the pond. How many frog eyes should he expect in the pond?\nAnswer:\nAxel should expect 6 frog eyes in the pond.\n\nExplanation:\nEach frog has 2 eyes, so there are 2 eyes per frog. Since there are 3 frogs in the pond, there are 3 x 2 = 6 eyes in the pond."
-    
-    instruction = (
-        "Extract the final letter answer ONLY from the text.\n"
-        "Rules:\n"
-        "- Return it exactly as written (including capitalization).\n"
-        "- Return ONLY a JSON object: {\"answer\": \"<VALUE>\"}.\n"
-        "- Do NOT include units or explanations.\n"
-    )
-    answer_text = "\nB. Which type of tree do the squirrels feed from most often?\n\nReasons:\n\n* The question asks about the type of tree that the squirrels feed from most often, which is directly related to the topic of the experiment (i.e., the food choices of squirrels).\n* The experiment involves hanging the feeders from a tree, so it is relevant to the question.\n* The other options do not relate directly to the topic of the experiment or are not relevant to the supplies provided."
-
     prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 {instruction}<|eot_id|>
 <|start_header_id|>user<|end_header_id|>
@@ -146,9 +102,5 @@ Text to parse:
 
 if __name__ == "__main__":
     set_cache_env_if_missing()
-    #if not os.path.isdir(SAVE_DIR) or not os.listdir(SAVE_DIR):
-    #    download_and_save(REPO_ID, SAVE_DIR)
-    #else:
-    #    print(f"Found existing local model at {SAVE_DIR}. Skipping download.")
     test_generation(SAVE_DIR)
 

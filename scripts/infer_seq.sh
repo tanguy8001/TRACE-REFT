@@ -20,7 +20,7 @@ BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
 
 cd /cluster/home/${USERNAME}/clmm/TRACE
 
-cl_method="O-LoRA"
+cl_method="lora"
 port=$(shuf -i25000-30000 -n1)
 
 # Paths customized for this environment

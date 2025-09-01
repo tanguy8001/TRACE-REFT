@@ -7,15 +7,8 @@ def resolve(dataset: list):
     answers = []
     reasonings = []
     for datium in dataset:
-        # Ensure robust handling of empty or malformed predictions
-        text = datium if isinstance(datium, str) else ("" if datium is None else str(datium))
-        text = text.strip()
-        # First character is the answer (e.g., A, B, ...). Use empty string if unavailable
-        ans = text[0] if len(text) > 0 else ""
-        # Reasoning typically starts after the answer and a separator (e.g., newline or colon)
-        reasoning = text[2:] if len(text) > 2 else (text[1:] if len(text) > 1 else "")
-        answers.append(ans)
-        reasonings.append(reasoning)
+        answers.append(datium[0]) # the first char is the answer. e.g. A, B,...
+        reasonings.append(datium[2:]) # A/nBecause...
     outputs = {"answers": answers, "reasonings": reasonings}
     return outputs
 

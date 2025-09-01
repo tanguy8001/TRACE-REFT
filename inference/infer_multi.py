@@ -125,6 +125,17 @@ def parse_args():
         default=4,
         help="Inference batch size.",
     )
+    parser.add_argument(
+        "--use_chat_template",
+        action='store_true',
+        help="Apply the tokenizer's chat template to prompts at inference."
+    )
+    parser.add_argument(
+        "--system_prompt",
+        type=str,
+        default=None,
+        help="Optional custom system prompt when using chat template."
+    )
 
     parser.add_argument("--output_dir",
                         type=str,
@@ -295,6 +306,14 @@ def main():
         # default the LLM is decoder only model, so padding side is left
         assert tokenizer.padding_side == 'left'
         assert tokenizer.truncation_side == "left"
+        # Auto-enable chat template for chat/instruct models if supported
+        try:
+            model_path_lower = str(args.model_name_or_path).lower()
+            if hasattr(tokenizer, "apply_chat_template") and ("chat" in model_path_lower or "instruct" in model_path_lower):
+                if not getattr(args, "use_chat_template", False):
+                    args.use_chat_template = True
+        except Exception:
+            pass
 
         model = create_hf_model(AutoModelForCausalLM,
                                 args.model_name_or_path,
@@ -400,7 +419,9 @@ def main():
                 max_prompt_len=args.max_prompt_len,
                 max_ans_len=args.max_ans_len,
                 pad_to_multiple_of=8,
-                inference=True
+                inference=True,
+                use_chat_template=args.use_chat_template,
+                system_prompt=args.system_prompt
             )
 
             infer_sampler = SequentialSampler(infer_dataset)

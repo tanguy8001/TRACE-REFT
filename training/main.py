@@ -515,6 +515,12 @@ def main():
 
     if args.gradient_checkpointing:
         underlying = model.module if hasattr(model, 'module') else model
+        # Ensure inputs require grads to make checkpointing create a grad path
+        try:
+            if hasattr(underlying, 'enable_input_require_grads'):
+                underlying.enable_input_require_grads()
+        except Exception:
+            pass
         if hasattr(underlying, 'gradient_checkpointing_enable'):
             underlying.gradient_checkpointing_enable()
         # Disable use_cache for compatibility with gradient checkpointing

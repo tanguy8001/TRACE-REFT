@@ -10,7 +10,7 @@ set -euo pipefail
 USERNAME="${USERNAME:-tdieudonne}"
 MODEL_NAME="${MODEL_NAME:-llama-2-7b-chat}"
 BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
-cl_method="O-LoRA"
+cl_method="base"
 port=$(shuf -i25000-30000 -n1)
 
 DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_${BENCHMARK_SIZE}"
