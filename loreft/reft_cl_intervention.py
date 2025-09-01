@@ -57,7 +57,7 @@ class ReftCLIntervention(
         # We keep dropout=0 inside each block; final dropout controlled at this level if needed
         loreft_kwargs = {
             "low_rank_dimension": self.low_rank_dimension,
-            "dropout": 0.0,
+            "dropout": 0.05,
             "act_fn": self.act_fn_name,
             "dtype": self.dtype,
         }

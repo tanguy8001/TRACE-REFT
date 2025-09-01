@@ -117,17 +117,6 @@ def parse_args():
         default=512,
         help="The maximum sequence length.",
     )
-    parser.add_argument(
-        "--use_chat_template",
-        action='store_true',
-        help="Apply the tokenizer's chat template during training."
-    )
-    parser.add_argument(
-        "--system_prompt",
-        type=str,
-        default=None,
-        help="Optional custom system prompt when using chat template."
-    )
 
     parser.add_argument(
         "--learning_rate",
@@ -309,9 +298,7 @@ def main():
             max_prompt_len=args.max_prompt_len,
             max_ans_len=args.max_ans_len,
             pad_to_multiple_of=8,
-            inference=False,
-            use_chat_template=args.use_chat_template,
-            system_prompt=args.system_prompt
+            inference=False
         )
         inf_data_collator = DataCollator(
             tokenizer,
@@ -320,9 +307,7 @@ def main():
             max_prompt_len=args.max_prompt_len,
             max_ans_len=args.max_ans_len,
             pad_to_multiple_of=8,
-            inference=True,
-            use_chat_template=args.use_chat_template,
-            system_prompt=args.system_prompt
+            inference=True
         )
                 
 
@@ -437,9 +422,7 @@ def main():
             max_prompt_len=args.max_prompt_len,
             max_ans_len=args.max_ans_len,
             pad_to_multiple_of=8,
-            inference=False,
-            use_chat_template=args.use_chat_template,
-            system_prompt=args.system_prompt
+            inference=False
         )
         replay_dataloader = DataLoader(replay_datasets,
                                     collate_fn=data_collator,

@@ -15,7 +15,7 @@ port=$(shuf -i25000-30000 -n1)
 
 DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_${BENCHMARK_SIZE}"
 MODEL_PATH="/cluster/scratch/${USERNAME}/initial_model/${MODEL_NAME}"
-INFERENCE_MODEL_PATH="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}"
+INFERENCE_MODEL_PATH="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}_sysprompt"
 INFER_OUTPUT_PATH="${INFERENCE_MODEL_PATH}/predictions"
 CACHE_PATH="/cluster/scratch/${USERNAME}/TRACE_cache"
 
@@ -38,7 +38,7 @@ echo "Port: $port"
 deepspeed --include=localhost:0 --master_port $port clmm/TRACE/inference/infer_single.py \
   --data_path "$DATA_PATH" \
   --data_output_path "$CACHE_PATH" \
-  --inference_tasks FOMC \
+  --inference_tasks C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
   --model_name_or_path "$MODEL_PATH" \
   --inference_model_path "$INFERENCE_MODEL_PATH" \
   --inference_batch 4 \

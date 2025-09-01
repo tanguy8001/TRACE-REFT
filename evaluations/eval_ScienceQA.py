@@ -2,13 +2,17 @@ import json
 from metrics import caculate_bleu, caculate_rouge, caculate_accuracy
 
 
-# resolving answer and reasoning
+# resolving answer and reasoning (robust to empty or malformed strings)
 def resolve(dataset: list):
     answers = []
     reasonings = []
     for datium in dataset:
-        answers.append(datium[0]) # the first char is the answer. e.g. A, B,...
-        reasonings.append(datium[2:]) # A/nBecause...
+        text = datium if isinstance(datium, str) else ("" if datium is None else str(datium))
+        text = text.strip()
+        ans = text[0] if len(text) > 0 else ""
+        reasoning = text[2:] if len(text) > 2 else (text[1:] if len(text) > 1 else "")
+        answers.append(ans)
+        reasonings.append(reasoning)
     outputs = {"answers": answers, "reasonings": reasonings}
     return outputs
 

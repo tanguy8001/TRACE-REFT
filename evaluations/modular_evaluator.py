@@ -6,6 +6,8 @@ Simplified modular evaluator that:
 - For non-accuracy tasks (MeetingBank, Py150, 20Minuten) calls the original evaluation code.
 
 Important: No regex heuristics for parsing model predictions. We only parse the JSON the judge returns.
+
+python3 evaluations/modular_evaluator.py   --pred_dir /cluster/scratch/tdieudonne/outputs_LLM-CL/cl/REFT-CL_sysprompt/predictions   --judge_model_path /cluster/scratch/tdieudonne/initial_model/llama-3.2-3B-Instruct   --csv_out_dir /cluster/scratch/tdieudonne/csv_pairs_reft_sysprompt
 """
 
 import json
