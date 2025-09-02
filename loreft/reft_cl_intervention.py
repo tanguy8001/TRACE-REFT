@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from typing import List, Union, Dict
 
 # pyreft base classes and LoReFT blocks
 try:
@@ -35,11 +36,18 @@ class ReftCLIntervention(
     - Alphas are provided via a shared alpha_bank (nn.Module with .alphas ParameterList) so
       they are registered only once at the top-level model and shared across layers.
     - active_tasks can be updated across rounds to include tasks seen so far.
+    - Optionally restrict to a subset of tasks using task_ids (list of global task indices).
     """
 
     def __init__(self, **kwargs):
         # pyreft will populate standard fields like embed_dim via super().__init__
-        num_tasks: int = kwargs["num_tasks"]
+        # Support either explicit subset selection via task_ids, or fallback to num_tasks
+        task_ids = kwargs.get("task_ids", None)
+        if task_ids is not None:
+            self.task_ids = [int(t) for t in task_ids]
+        else:
+            num_tasks: int = int(kwargs["num_tasks"])  # type: ignore
+            self.task_ids = list(range(num_tasks))
         self.eps: float = float(kwargs.get("eps", 1e-6))
         self.low_rank_dimension: int = int(kwargs["low_rank_dimension"])  # required by pyreft
         self.dropout_p: float = float(kwargs.get("dropout", 0.0))
@@ -50,7 +58,7 @@ class ReftCLIntervention(
         super().__init__(**kwargs, keep_last_dim=True)
 
         # Shared alpha accessor (callable) to avoid re-registering parameters in each intervention
-        # Usage: self._get_alpha(i) -> nn.Parameter scalar for task i
+        # Usage: self._get_alpha(global_task_id) -> nn.Parameter scalar for that task
         self._get_alpha = kwargs["get_alpha"]
 
         # Build one LoReFT block per task for (R, W, b) with pyreft defaults
@@ -63,16 +71,23 @@ class ReftCLIntervention(
         }
         # Ensure pyreft receives embed_dim
         loreft_kwargs["embed_dim"] = self.embed_dim
-        self.tasks = nn.ModuleList([LoreftIntervention(**loreft_kwargs) for _ in range(num_tasks)])
+        self.tasks = nn.ModuleList([LoreftIntervention(**loreft_kwargs) for _ in range(len(self.task_ids))])
 
         # Optional top-level dropout after accumulation
         self.output_dropout = nn.Dropout(self.dropout_p) if self.dropout_p > 0 else nn.Identity()
 
-        # Track how many tasks are active (<= num_tasks)
-        self.active_tasks: int = num_tasks
+        # Track which local blocks are active (indices into self.tasks)
+        self.active_indices: List[int] = []
 
     def set_active_tasks(self, n: int):
-        self.active_tasks = max(0, min(n, len(self.tasks)))
+        """Activate the first n blocks in the subset order (backward-compatible behavior)."""
+        n = max(0, min(n, len(self.tasks)))
+        self.active_indices = list(range(n))
+
+    def set_active_by_round(self, t: int):
+        """Activate blocks whose global task id is < t (rounds are 1-indexed upstream)."""
+        threshold = int(t)
+        self.active_indices = [j for j, gid in enumerate(self.task_ids) if gid < threshold]
 
     def forward(self, base, source=None, subspaces=None):
         # base: [..., embed_dim] (pyreft passes the right shape; keep_last_dim=True)
@@ -81,8 +96,8 @@ class ReftCLIntervention(
         total_delta = torch.zeros_like(h)
 
         # Compute using float32 for numeric stability of norms
-        for i in range(self.active_tasks):
-            block = self.tasks[i]
+        for j in self.active_indices:
+            block = self.tasks[j]
             # Ensure input matches block params dtype to avoid dtype mismatch
             target_dtype = block.rotate_layer.weight.dtype
             h_cast = h.to(target_dtype)
@@ -99,7 +114,9 @@ class ReftCLIntervention(
             denom = torch.norm(d32, dim=-1, keepdim=True).clamp_min(self.eps)
             dir_i = (d32 / denom).to(h.dtype)
 
-            alpha_i = self._get_alpha(i)
+            # Map local block index to global task id for shared alpha
+            global_task_id = self.task_ids[j]
+            alpha_i = self._get_alpha(global_task_id)
             total_delta = total_delta + alpha_i * dir_i
 
         out = h + total_delta
@@ -124,8 +141,9 @@ class ReftCLIntervention(
             dropout_state = self.output_dropout.state_dict(prefix=f"{prefix}output_dropout.", keep_vars=keep_vars)
             destination.update(dropout_state)
         
-        # Save module metadata  
-        destination[f"{prefix}active_tasks"] = torch.tensor(self.active_tasks)
+        # Save module metadata
+        destination[f"{prefix}active_indices"] = torch.tensor(self.active_indices, dtype=torch.long)
+        destination[f"{prefix}task_ids"] = torch.tensor(self.task_ids, dtype=torch.long)
         destination[f"{prefix}eps"] = torch.tensor(self.eps)
         destination[f"{prefix}low_rank_dimension"] = torch.tensor(self.low_rank_dimension)
         
@@ -183,8 +201,19 @@ class ReftCLIntervention(
                 unexpected_keys.extend([f"{dropout_prefix}{k}" for k in unexpected])
         
         # Load metadata
-        if "active_tasks" in state_dict:
-            self.active_tasks = int(state_dict["active_tasks"].item())
+        if "active_indices" in state_dict:
+            ai = state_dict["active_indices"]
+            try:
+                self.active_indices = ai.tolist()  # tensor -> list
+            except Exception:
+                # Be tolerant to older saves where it may be a python list already
+                self.active_indices = list(ai)
+        if "task_ids" in state_dict:
+            tids = state_dict["task_ids"]
+            try:
+                self.task_ids = [int(x) for x in tids.tolist()]
+            except Exception:
+                self.task_ids = [int(x) for x in tids]
         if "eps" in state_dict:
             self.eps = float(state_dict["eps"].item())
         if "low_rank_dimension" in state_dict:

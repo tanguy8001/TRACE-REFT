@@ -147,6 +147,10 @@ def parse_args():
     parser.add_argument('--reft_layers', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
     parser.add_argument('--reft_rank', type=int, default=4, help='Low-rank dimension r for REFT')
     parser.add_argument('--reft_eps', type=float, default=1e-6, help='Epsilon for direction normalization')
+    # Task-specific layer flags for scheme 2
+    for _i in range(1, 9):
+        parser.add_argument(f'--reft_layer_task_{_i}', type=str, default=None,
+                            help=f'Layers to intervene for task {_i} (e.g., 0;8;16;24)')
 
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
@@ -359,8 +363,49 @@ def main():
                 print_rank_0(f"[REFT-CL] Successfully loaded model from {inference_model_path}", args.local_rank)
                 
             except Exception as load_error:
-                print_rank_0(f"[REFT-CL] Loading failed: {load_error}", args.local_rank)
-                raise
+                print_rank_0(f"[REFT-CL] Direct load failed: {load_error}", args.local_rank)
+                
+                # Fallback: reconstruct the intervention structure and load manually
+                print_rank_0("[REFT-CL] Attempting manual reconstruction and loading...", args.local_rank)
+                from reft_loading_utils import load_reft_cl_model
+
+                # Determine layer scheme (unified vs task-specific)
+                task_specific_layers = {}
+                using_task_specific = False
+                for _i in range(1, 9):
+                    arg_name = f"reft_layer_task_{_i}"
+                    task_layer_arg = getattr(args, arg_name, None)
+                    if isinstance(task_layer_arg, str) and len(task_layer_arg.strip()) > 0:
+                        try:
+                            task_specific_layers[_i - 1] = [int(x) for x in task_layer_arg.split(";") if len(x) > 0]
+                            using_task_specific = True
+                        except Exception:
+                            pass
+
+                if using_task_specific:
+                    reft_config = {
+                        'task_specific_layers': task_specific_layers,
+                        'low_rank': int(getattr(args, "reft_rank", 4)),
+                        'eps': float(getattr(args, "reft_eps", 1e-6)),
+                        'num_tasks': len(inference_tasks)
+                    }
+                else:
+                    layer_str = getattr(args, "reft_layers", "3;9;18;24")
+                    if layer_str.strip() == "all":
+                        num_layers = model.config.num_hidden_layers
+                        target_layers = list(range(num_layers))
+                    else:
+                        target_layers = [int(x) for x in layer_str.split(";") if len(x) > 0]
+
+                    reft_config = {
+                        'target_layers': target_layers,
+                        'low_rank': int(getattr(args, "reft_rank", 4)),
+                        'eps': float(getattr(args, "reft_eps", 1e-6)),
+                        'num_tasks': len(inference_tasks)
+                    }
+                
+                model = load_reft_cl_model(model, inference_model_path, reft_config)
+                print_rank_0(f"[REFT-CL] Successfully loaded interventions manually from {inference_model_path}", args.local_rank)
         
         # TODO: add adapters
         if args.CL_method == "LFPT5":
