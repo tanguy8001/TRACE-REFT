@@ -15,7 +15,7 @@ port=$(shuf -i25000-30000 -n1)
 
 DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_${BENCHMARK_SIZE}"
 MODEL_PATH="/cluster/scratch/${USERNAME}/initial_model/${MODEL_NAME}"
-INFERENCE_MODEL_PATH="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}_sysprompt"
+INFERENCE_MODEL_PATH="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}_rank8_9layers_2"
 INFER_OUTPUT_PATH="${INFERENCE_MODEL_PATH}/predictions"
 CACHE_PATH="/cluster/scratch/${USERNAME}/TRACE_cache"
 
@@ -35,7 +35,7 @@ echo "Inference output path: $INFER_OUTPUT_PATH"
 echo "CL method: $cl_method"
 echo "Port: $port"
 #C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten
-deepspeed --include=localhost:0 --master_port $port clmm/TRACE/inference/infer_single.py \
+deepspeed --include=localhost:0,1 --master_port $port clmm/TRACE/inference/infer_single.py \
   --data_path "$DATA_PATH" \
   --data_output_path "$CACHE_PATH" \
   --inference_tasks C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
@@ -48,9 +48,9 @@ deepspeed --include=localhost:0 --master_port $port clmm/TRACE/inference/infer_s
   --seed 1234 \
   --deepspeed \
   --CL_method "$cl_method" \
-  --reft_layers "3;9;18;24" \
-  --reft_rank 4 \
-  --reft_eps 1e-6 \
+  --reft_layers "4;6;10;12;14;18;20;22;26" \
+  --reft_rank 8 \
+  --reft_eps 1e-8 \
   --inference_output_path "$INFER_OUTPUT_PATH" 2>&1 | tee -a "$INFERENCE_MODEL_PATH"/infer.log
 
 

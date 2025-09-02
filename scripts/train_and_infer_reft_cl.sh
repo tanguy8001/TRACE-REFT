@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --output=/cluster/home/tdieudonne/clmm/TRACE/logs/train_and_infer_reft_cl_%j.out
 #SBATCH --time=24:00:00
-#SBATCH --gpus-per-node=2
+#SBATCH --gpus-per-node=1
 #SBATCH --partition=gpupr.24h
 #SBATCH --gres=gpumem:38g
 #SBATCH --cpus-per-task=4
@@ -34,7 +34,7 @@ echo "Data cache: $DATA_CACHE"
 echo "CL method: $cl_method"
 echo "Port: $port"
 
-deepspeed  --include=localhost:0,1 --master_port $port clmm/TRACE/training/main.py \
+deepspeed  --include=localhost:0 --master_port $port clmm/TRACE/training/main.py \
   --data_path "${DATA_PATH}" \
   --dataset_name C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
   --data_output_path "${DATA_CACHE}" \

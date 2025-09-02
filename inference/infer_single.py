@@ -404,12 +404,26 @@ def main():
             model = PeftModel.from_pretrained(model, inference_model_path)
 
         if args.CL_method == "REFT-CL":
-            # Load checkpoint into reft-wrapped model
-            ckpt_path = os.path.join(inference_model_path, "pytorch_model.bin")
-            state = torch.load(ckpt_path, map_location="cpu")
-            missing, unexpected = model.load_state_dict(state, strict=False)
-            if len(missing) > 0 or len(unexpected) > 0:
-                print_rank_0(f"[REFT-CL] load_state: missing={len(missing)} unexpected={len(unexpected)}", args.local_rank)
+            # Load checkpoint using pyreft's proper loading method
+            try:
+                # pyreft's load method handles the special file format
+                model.load(inference_model_path)
+                print_rank_0(f"[REFT-CL] Successfully loaded model from {inference_model_path}", args.local_rank)
+            except Exception as e:
+                print_rank_0(f"[REFT-CL] Error loading model: {e}", args.local_rank)
+                # Fallback: try manual loading if pyreft.load fails
+                try:
+                    import glob
+                    intervention_files = glob.glob(os.path.join(inference_model_path, "intkey_*.bin"))
+                    if intervention_files:
+                        print_rank_0(f"[REFT-CL] Found {len(intervention_files)} intervention files, trying manual load", args.local_rank)
+                        # This is a more complex fallback - pyreft.load should work
+                        raise RuntimeError("pyreft.load failed and manual loading not implemented")
+                    else:
+                        raise RuntimeError(f"No intervention files found in {inference_model_path}")
+                except Exception as fallback_e:
+                    print_rank_0(f"[REFT-CL] Fallback loading also failed: {fallback_e}", args.local_rank)
+                    raise
         elif args.CL_method != "lora" and args.CL_method != "O-LoRA" and args.CL_method != "LFPT5": 
             inference_model = torch.load(os.path.join(inference_model_path, "pytorch_model.bin"))
             for name, param in model.named_parameters():

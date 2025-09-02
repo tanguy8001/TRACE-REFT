@@ -54,7 +54,7 @@ class ReftCLIntervention(
         self._get_alpha = kwargs["get_alpha"]
 
         # Build one LoReFT block per task for (R, W, b) with pyreft defaults
-        # We keep dropout=0 inside each block; final dropout controlled at this level if needed
+        # We keep dropout=0 inside each block;  nal dropout controlled at this level if needed
         loreft_kwargs = {
             "low_rank_dimension": self.low_rank_dimension,
             "dropout": 0.05,
@@ -104,6 +104,74 @@ class ReftCLIntervention(
 
         out = h + total_delta
         return self.output_dropout(out)
+
+    def state_dict(self, destination=None, prefix='', keep_vars=False):
+        """Override state_dict to properly save nested LoreftIntervention parameters."""
+        if destination is None:
+            destination = {}
+        
+        # Save each task's LoreftIntervention state
+        for i, task_module in enumerate(self.tasks):
+            task_prefix = f"{prefix}tasks.{i}."
+            task_state = task_module.state_dict(prefix=task_prefix, keep_vars=keep_vars)
+            destination.update(task_state)
+        
+        # Save other parameters (like dropout)
+        if hasattr(self.output_dropout, 'state_dict'):
+            dropout_state = self.output_dropout.state_dict(prefix=f"{prefix}output_dropout.", keep_vars=keep_vars)
+            destination.update(dropout_state)
+        
+        # Save module metadata  
+        destination[f"{prefix}active_tasks"] = torch.tensor(self.active_tasks)
+        destination[f"{prefix}eps"] = torch.tensor(self.eps)
+        destination[f"{prefix}low_rank_dimension"] = torch.tensor(self.low_rank_dimension)
+        
+        return destination
+
+    def load_state_dict(self, state_dict, strict=True):
+        """Override load_state_dict to properly load nested LoreftIntervention parameters."""
+        missing_keys = []
+        unexpected_keys = []
+        
+        # Load each task's LoreftIntervention state
+        for i, task_module in enumerate(self.tasks):
+            task_prefix = f"tasks.{i}."
+            task_state = {}
+            
+            # Extract keys for this task
+            for key in list(state_dict.keys()):
+                if key.startswith(task_prefix):
+                    # Remove the task prefix for the individual module
+                    module_key = key[len(task_prefix):]
+                    task_state[module_key] = state_dict[key]
+            
+            if task_state:
+                missing, unexpected = task_module.load_state_dict(task_state, strict=strict)
+                missing_keys.extend([f"{task_prefix}{k}" for k in missing])
+                unexpected_keys.extend([f"{task_prefix}{k}" for k in unexpected])
+        
+        # Load other parameters
+        if hasattr(self.output_dropout, 'load_state_dict'):
+            dropout_prefix = "output_dropout."
+            dropout_state = {}
+            for key in list(state_dict.keys()):
+                if key.startswith(dropout_prefix):
+                    module_key = key[len(dropout_prefix):]
+                    dropout_state[module_key] = state_dict[key]
+            if dropout_state:
+                missing, unexpected = self.output_dropout.load_state_dict(dropout_state, strict=strict)
+                missing_keys.extend([f"{dropout_prefix}{k}" for k in missing])
+                unexpected_keys.extend([f"{dropout_prefix}{k}" for k in unexpected])
+        
+        # Load metadata
+        if "active_tasks" in state_dict:
+            self.active_tasks = int(state_dict["active_tasks"].item())
+        if "eps" in state_dict:
+            self.eps = float(state_dict["eps"].item())
+        if "low_rank_dimension" in state_dict:
+            self.low_rank_dimension = int(state_dict["low_rank_dimension"].item())
+        
+        return missing_keys, unexpected_keys
 
 
 
