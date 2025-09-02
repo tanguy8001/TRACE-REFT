@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --output=/cluster/home/tdieudonne/clmm/TRACE/logs/train_seq_cl_%j.out
+#SBATCH --output=/cluster/home/tdieudonne/clmm/TRACE/logs/train_reft_cl_%j.out
 #SBATCH --time=24:00:00
 #SBATCH --gpus-per-node=1
 #SBATCH --partition=gpupr.24h
@@ -14,7 +14,7 @@ port=$(shuf -i25000-30000 -n1)
 
 DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_${BENCHMARK_SIZE}"
 MODEL_PATH="/cluster/scratch/${USERNAME}/initial_model/${MODEL_NAME}"
-OUTPUT_DIR="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}_rank8_9layers_2"
+OUTPUT_DIR="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}"
 DATA_CACHE="/cluster/scratch/${USERNAME}/reft_cl_outputs"
 mkdir -p "$OUTPUT_DIR"j
 mkdir -p "$DATA_CACHE"
@@ -32,7 +32,8 @@ echo "Output directory: $OUTPUT_DIR"
 echo "Data cache: $DATA_CACHE"
 echo "CL method: $cl_method"
 echo "Port: $port"
-
+# 5,3,7,5,3,5,5,7
+#C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten
 deepspeed  --include=localhost:0 --master_port $port clmm/TRACE/training/main.py \
   --data_path "${DATA_PATH}" \
   --dataset_name C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \

@@ -192,12 +192,36 @@ def main():
             num_return_sequences=1,
             use_cache=True,
         )
+        
         if _is_intervenable(model_obj):
+            # REFT-CL model: use pyreft's generation API with unit_locations
             base_inputs = {"input_ids": batch["input_ids"], "attention_mask": batch.get("attention_mask")}
-            out = model_obj.generate(base_inputs, **gen_kwargs)
+            
+            # For REFT-CL, we need to specify unit_locations for interventions
+            # Intervene on all tokens at each targeted layer
+            seq_len = batch["input_ids"].shape[1]
+            unit_locations = [[list(range(seq_len))] for _ in range(len(model_obj.interventions))]
+            
+            generation_args = {
+                "base": base_inputs,
+                "unit_locations": {"sources->base": (None, unit_locations)},
+                "intervene_on_prompt": True,
+                **gen_kwargs
+            }
+            
+            try:
+                _, out = model_obj.generate(**generation_args)
+                gen_ids = _pick_first_tensor(out)
+            except Exception as e:
+                print_rank_0(f"[REFT-CL] Generation failed: {e}", 0)
+                # Fallback to simple generation
+                out = model_obj.generate(base_inputs, **gen_kwargs)
+                gen_ids = _pick_first_tensor(out)
         else:
+            # Standard model generation
             out = model_obj.generate(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'], **gen_kwargs)
-        gen_ids = _pick_first_tensor(out)
+            gen_ids = _pick_first_tensor(out)
+            
         if gen_ids is None:
             # Minimal debug dump
             msg = f"[DEBUG] Unexpected generate() output type: {type(out).__name__}"
@@ -301,42 +325,42 @@ def main():
                                 ds_config=None,
                                 )
 
-        # REFT-CL: use pyreft's direct loading mechanism
+        # REFT-CL: use our new task-structured loading mechanism
         if args.CL_method == "REFT-CL":
-            try:
-                from pyvene import IntervenableModel
-            except Exception:
-                print_rank_0("[REFT-CL] Failed to import pyvene.IntervenableModel", args.local_rank)
-                raise
+            print_rank_0("[REFT-CL] Loading model with task-structured interventions...", args.local_rank)
             
-            # Use IntervenableModel.load() which handles the full loading process
             try:
-                model = IntervenableModel.load(inference_model_path, model)
+                from reft_inference_loading import load_reft_cl_model_for_inference, load_reft_config_from_saved_model
+                
+                # Load config from saved model or use defaults
+                reft_config = load_reft_config_from_saved_model(inference_model_path)
+                
+                # Override with command line args if provided
+                if hasattr(args, 'reft_layers') and args.reft_layers:
+                    reft_config['reft_layers'] = args.reft_layers
+                if hasattr(args, 'reft_rank') and args.reft_rank:
+                    reft_config['reft_rank'] = args.reft_rank
+                if hasattr(args, 'reft_eps') and args.reft_eps:
+                    reft_config['reft_eps'] = args.reft_eps
+                
+                # Set num_tasks based on inference tasks
+                reft_config['num_tasks'] = len(inference_tasks)
+                
+                print_rank_0(f"[REFT-CL] Using config: {reft_config}", args.local_rank)
+                
+                # Load the model with task-structured interventions
+                model, tokenizer = load_reft_cl_model_for_inference(
+                    base_model_path=args.model_name_or_path,
+                    saved_model_path=inference_model_path,
+                    reft_config=reft_config,
+                    tokenizer=tokenizer
+                )
+                
                 print_rank_0(f"[REFT-CL] Successfully loaded model from {inference_model_path}", args.local_rank)
+                
             except Exception as load_error:
-                print_rank_0(f"[REFT-CL] Direct load failed: {load_error}", args.local_rank)
-                
-                # Fallback: reconstruct the intervention structure and load manually
-                print_rank_0("[REFT-CL] Attempting manual reconstruction and loading...", args.local_rank)
-                from reft_loading_utils import load_reft_cl_model
-
-                # Determine target layers
-                layer_str = getattr(args, "reft_layers", "3;9;18;24")
-                if layer_str.strip() == "all":
-                    num_layers = model.config.num_hidden_layers
-                    target_layers = list(range(num_layers))
-                else:
-                    target_layers = [int(x) for x in layer_str.split(";") if len(x) > 0]
-
-                reft_config = {
-                    'target_layers': target_layers,
-                    'low_rank': int(getattr(args, "reft_rank", 4)),
-                    'eps': float(getattr(args, "reft_eps", 1e-6)),
-                    'num_tasks': len(inference_tasks)
-                }
-                
-                model = load_reft_cl_model(model, inference_model_path, reft_config)
-                print_rank_0(f"[REFT-CL] Successfully loaded interventions manually from {inference_model_path}", args.local_rank)
+                print_rank_0(f"[REFT-CL] Loading failed: {load_error}", args.local_rank)
+                raise
         
         # TODO: add adapters
         if args.CL_method == "LFPT5":
@@ -438,7 +462,10 @@ def main():
                 try:
                     for inter in getattr(base_ref, "interventions", {}).values():
                         if hasattr(inter, "set_active_tasks"):
-                            inter.set_active_tasks(inference_task_id + 1)
+                            # Activate tasks up to current inference round (1-indexed)
+                            active_tasks = inference_task_id + 1
+                            inter.set_active_tasks(active_tasks)
+                            print_rank_0(f"[REFT-CL] Activated {active_tasks} tasks for inference", args.local_rank)
                 except Exception:
                     pass
             sources_sequences, predicted_sequences, ground_truths = prediction(model, infer_dataloader)

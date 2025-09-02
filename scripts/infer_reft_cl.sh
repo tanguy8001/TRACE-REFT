@@ -15,7 +15,7 @@ port=$(shuf -i25000-30000 -n1)
 
 DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_${BENCHMARK_SIZE}"
 MODEL_PATH="/cluster/scratch/${USERNAME}/initial_model/${MODEL_NAME}"
-INFERENCE_MODEL_PATH="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}_rank8_9layers_2"
+INFERENCE_MODEL_PATH="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}"
 INFER_OUTPUT_PATH="${INFERENCE_MODEL_PATH}/predictions"
 CACHE_PATH="/cluster/scratch/${USERNAME}/TRACE_cache"
 
@@ -54,5 +54,10 @@ deepspeed --include=localhost:0,1 --master_port $port clmm/TRACE/inference/infer
   --inference_output_path "$INFER_OUTPUT_PATH" 2>&1 | tee -a "$INFERENCE_MODEL_PATH"/infer.log
 
 
+echo "Evaluation Post-ProcessingREFT-CL"
 
-
+python3 /cluster/home/tdieudonne/clmm/TRACE/evaluations/modular_evaluator.py \
+  --pred_dir /cluster/scratch/tdieudonne/outputs_LLM-CL/cl/REFT-CL/predictions \
+  --judge_model_path /cluster/scratch/tdieudonne/initial_model/llama-3.2-3B-Instruct \
+  --csv_out_dir /cluster/scratch/tdieudonne/csv_pairs_reft 
+  

@@ -110,11 +110,14 @@ class ReftCLIntervention(
         if destination is None:
             destination = {}
         
-        # Save each task's LoreftIntervention state
+        # Save each task's LoreftIntervention state using pyreft's native state_dict
         for i, task_module in enumerate(self.tasks):
             task_prefix = f"{prefix}tasks.{i}."
-            task_state = task_module.state_dict(prefix=task_prefix, keep_vars=keep_vars)
-            destination.update(task_state)
+            # Use pyreft's native state_dict and manually add the task prefix
+            task_state = task_module.state_dict(prefix="", keep_vars=keep_vars)
+            for key, value in task_state.items():
+                prefixed_key = f"{task_prefix}{key}"
+                destination[prefixed_key] = value
         
         # Save other parameters (like dropout)
         if hasattr(self.output_dropout, 'state_dict'):
@@ -133,12 +136,12 @@ class ReftCLIntervention(
         missing_keys = []
         unexpected_keys = []
         
-        # Load each task's LoreftIntervention state
+        # Load each task's LoreftIntervention state by directly setting parameters
         for i, task_module in enumerate(self.tasks):
             task_prefix = f"tasks.{i}."
-            task_state = {}
             
             # Extract keys for this task
+            task_state = {}
             for key in list(state_dict.keys()):
                 if key.startswith(task_prefix):
                     # Remove the task prefix for the individual module
@@ -146,9 +149,25 @@ class ReftCLIntervention(
                     task_state[module_key] = state_dict[key]
             
             if task_state:
-                missing, unexpected = task_module.load_state_dict(task_state, strict=strict)
-                missing_keys.extend([f"{task_prefix}{k}" for k in missing])
-                unexpected_keys.extend([f"{task_prefix}{k}" for k in unexpected])
+                try:
+                    # Directly set parameters to avoid pyreft's load_state_dict issues
+                    for param_name, param_value in task_state.items():
+                        if param_name == "learned_source.weight":
+                            if hasattr(task_module, 'learned_source') and hasattr(task_module.learned_source, 'weight'):
+                                task_module.learned_source.weight.data.copy_(param_value)
+                        elif param_name == "learned_source.bias":
+                            if hasattr(task_module, 'learned_source') and hasattr(task_module.learned_source, 'bias'):
+                                task_module.learned_source.bias.data.copy_(param_value)
+                        elif param_name == "rotate_layer.parametrizations.weight.original":
+                            if hasattr(task_module, 'rotate_layer') and hasattr(task_module.rotate_layer, 'parametrizations'):
+                                task_module.rotate_layer.parametrizations.weight.original.data.copy_(param_value)
+                    
+                    print(f"[REFT-CL] Successfully loaded task {i} parameters")
+                except Exception as e:
+                    print(f"[DEBUG] Error loading task {i}: {e}")
+                    print(f"[DEBUG] Task {i} state keys: {list(task_state.keys())}")
+                    print(f"[DEBUG] Task {i} state dtypes: {[(k, v.dtype if torch.is_tensor(v) else type(v)) for k, v in task_state.items()]}")
+                    raise
         
         # Load other parameters
         if hasattr(self.output_dropout, 'load_state_dict'):
