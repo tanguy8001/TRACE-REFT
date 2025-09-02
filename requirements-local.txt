@@ -1,0 +1,57 @@
+# --- Core scientific stack (CPU) ---
+numpy==1.26.4
+scipy==1.15.3
+pandas==2.3.1
+scikit-learn==1.4.2
+matplotlib==3.10.0
+seaborn==0.12.2
+
+# --- Jupyter/quarto-ish QoL ---
+jupyter==1.1.1
+ipykernel==6.30.0
+ipywidgets==8.1.7
+notebook==7.4.4
+jupyterlab==4.4.5
+
+# --- Hugging Face stack (CPU works fine) ---
+transformers==4.55.2
+tokenizers==0.21.4
+accelerate==1.9.0
+datasets==3.0.1
+evaluate==0.4.5
+huggingface-hub==0.34.3
+safetensors==0.5.3
+sentencepiece==0.2.0
+einops==0.8.1
+tqdm==4.66.4
+regex==2024.11.6
+requests==2.32.4
+filelock==3.18.0
+fsspec==2024.2.0
+
+# --- Visualization & reports ---
+plotnine==0.15.0
+ydata-profiling==4.16.1
+wordcloud==1.9.4
+
+# --- Logging / utils ---
+wandb==0.17.0
+python-dateutil==2.9.0.post0
+pyyaml==6.0.2
+psutil==7.0.0
+pydantic==2.11.7
+typing_extensions==4.14.1
+
+# --- Torch (CPU wheels) ---
+# Install these via the CPU index URL (see install command below); keep versions roughly in range with your code.
+torch==2.6.0
+torchvision==0.21.0
+
+
+# --- Your research libs (work on CPU) ---
+pyreft @ git+https://github.com/stanfordnlp/pyreft.git@dafd0995a366d7b47160a337dcc388eda7431821
+pyvene==0.1.8
+
+# --- Optional: keep but they’re CPU-friendly ---
+pillow==11.3.0
+pynvml==12.0.0      # harmless on CPU; you can drop it if it bothers you
