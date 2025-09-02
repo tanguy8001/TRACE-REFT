@@ -174,6 +174,16 @@ def get_optimizer_grouped_parameters(
             return any(name.startswith(prefix) for prefix in alpha_name_prefixes)
         except Exception:
             return False
+    
+    # Recognize intervention params (REFT-CL interventions)
+    # Based on actual parameter names: layer_X_comp_block_output_unit_pos_nunit_1#0.tasks.Y.*
+    def _is_intervention_name(name: str) -> bool:
+        try:
+            # Match the exact pattern found in REFT-CL models
+            return (name.startswith("layer_") and 
+                    "_comp_block_output_unit_pos_nunit_1#0.tasks." in name)
+        except Exception:
+            return False
     # Debug: inspect how parameters are named before grouping
     try:
         all_named_params = list(model.named_parameters())
@@ -211,7 +221,8 @@ def get_optimizer_grouped_parameters(
                 if (not any(nd in n for nd in no_decay_name_list)
                     and p.requires_grad
                     and not any(nd in n for nd in lora_name_list)
-                    and not _is_alpha_name(n))
+                    and not _is_alpha_name(n)
+                    and not _is_intervention_name(n))
             ],
             "weight_decay":
             weight_decay,
@@ -232,7 +243,8 @@ def get_optimizer_grouped_parameters(
                 p for n, p in model.named_parameters()
                 if (any(nd in n for nd in no_decay_name_list)
                     and p.requires_grad
-                    and not _is_alpha_name(n))
+                    and not _is_alpha_name(n)
+                    and not _is_intervention_name(n))
             ],
             "weight_decay":
             0.0,
@@ -271,6 +283,34 @@ def get_optimizer_grouped_parameters(
             "weight_decay": 0.0,
             "lr": alpha_lr,
         })
+    
+    # Add intervention parameters with appropriate learning rate
+    intervention_params = [
+        p for n, p in model.named_parameters()
+        if _is_intervention_name(n) and p.requires_grad
+    ]
+    
+    # Debug intervention parameter collection
+    try:
+        debug_intervention_names = [n for n, p in model.named_parameters() if _is_intervention_name(n)]
+        print(f"Intervention params (requires_grad=True) count: {len(intervention_params)}")
+        if debug_intervention_names:
+            print(f"[DEBUG] intervention param names (first 10): {', '.join(debug_intervention_names[:10])}{' ...' if len(debug_intervention_names) > 10 else ''}")
+        else:
+            print("[DEBUG] No parameters matched intervention patterns.")
+    except Exception:
+        pass
+    
+    if intervention_params:
+        optimizer_grouped_parameters.append({
+            "params": intervention_params,
+            "weight_decay": 0.0,  # No weight decay for intervention parameters
+            "lr": alpha_lr,       # Use same LR as alphas (or could be separate param)
+        })
+        print(f"[DEBUG] Added {len(intervention_params)} intervention parameters to optimizer")
+    else:
+        print("[DEBUG] No intervention parameters found for optimizer")
+    
     if not optimizer_grouped_parameters[1]["params"]:
         optimizer_grouped_parameters.pop(1)
 

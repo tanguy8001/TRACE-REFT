@@ -5,7 +5,6 @@ from typing import Dict
 from model.base_model import CL_Base_Model
 from utils.utils import print_rank_0
 
-# Import locations differ across pyreft versions
 try:
     from pyreft import get_reft_model, ReftConfig  # modern API
 except Exception:
@@ -38,11 +37,9 @@ class ReFTCL(CL_Base_Model):
 
     def __init__(self, model, tokenizer, optimizer, train_task_list, eval_task_list, test_task_list, args):
         super().__init__(model, tokenizer, optimizer, train_task_list, eval_task_list, test_task_list, args)
-        # Infer num tasks from provided train_task_list
         self.tasks = list(self.train_task_list.keys())
         self.num_tasks = len(self.tasks)
-
-        # Build alpha bank (shared across layers)
+        # shared across layers
         self.alpha_bank = AlphaBank(self.num_tasks, alpha_init=0.1)
 
         # Inject pyreft model wrapper with our intervention across selected layers
@@ -51,8 +48,8 @@ class ReFTCL(CL_Base_Model):
 
     def _attach_reft_interventions(self):
         """Wrap self.model with pyreft get_reft_model using our intervention."""
-        # Determine target layers from args or defaults
-        layer_str = getattr(self.args, "reft_layers", "3;9;18;24")
+  
+        layer_str = self.args.reft_layers
         if layer_str.strip() == "all":
             num_layers = self.model.config.num_hidden_layers
             target_layers = list(range(num_layers))
@@ -266,22 +263,13 @@ class ReFTCL(CL_Base_Model):
             
             # Get the underlying reft model (unwrap from DeepSpeed if needed)
             model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+
+            # Use pyreft's save method which properly handles interventions
+            model_to_save.save(save_dir)
+            print_rank_0(f'Successfully saved REFT-CL model with interventions to {save_dir}', self.args.global_rank)
             
-            try:
-                # Use pyreft's save method which properly handles interventions
-                model_to_save.save(save_dir)
-                print_rank_0(f'Successfully saved REFT-CL model with interventions to {save_dir}', self.args.global_rank)
-                
-                # Debug: verify intervention weights were saved
-                self._debug_verify_saved_interventions(save_dir, round)
-                
-            except Exception as e:
-                print_rank_0(f'Error saving REFT-CL model: {e}', self.args.global_rank)
-                # Fallback to base saving method
-                from utils.utils import save_hf_format
-                save_hf_format(self.model, self.tokenizer, self.args, sub_folder=str(round))
-        
-        # Handle ZeRO stage 3 if needed
+            self._debug_verify_saved_interventions(save_dir, round)
+ 
         if self.args.zero_stage == 3:
             from utils.utils import save_zero_three_model
             save_zero_three_model(self.model,

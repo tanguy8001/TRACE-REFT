@@ -301,54 +301,42 @@ def main():
                                 ds_config=None,
                                 )
 
-        # REFT-CL: rebuild pyreft interventions, then load saved weights
+        # REFT-CL: use pyreft's direct loading mechanism
         if args.CL_method == "REFT-CL":
             try:
-                from pyreft import get_reft_model, ReftConfig
+                from pyvene import IntervenableModel
             except Exception:
-                from pyreft.utils import get_reft_model  # type: ignore
-                from pyreft import ReftConfig  # type: ignore
-            from loreft.reft_cl_intervention import ReftCLIntervention
-            from model.ReFTCL import AlphaBank
+                print_rank_0("[REFT-CL] Failed to import pyvene.IntervenableModel", args.local_rank)
+                raise
+            
+            # Use IntervenableModel.load() which handles the full loading process
+            try:
+                model = IntervenableModel.load(inference_model_path, model)
+                print_rank_0(f"[REFT-CL] Successfully loaded model from {inference_model_path}", args.local_rank)
+            except Exception as load_error:
+                print_rank_0(f"[REFT-CL] Direct load failed: {load_error}", args.local_rank)
+                
+                # Fallback: reconstruct the intervention structure and load manually
+                print_rank_0("[REFT-CL] Attempting manual reconstruction and loading...", args.local_rank)
+                from reft_loading_utils import load_reft_cl_model
 
-            # Determine target layers
-            layer_str = getattr(args, "reft_layers", "3;9;18;24")
-            if layer_str.strip() == "all":
-                num_layers = model.config.num_hidden_layers
-                target_layers = list(range(num_layers))
-            else:
-                target_layers = [int(x) for x in layer_str.split(";") if len(x) > 0]
+                # Determine target layers
+                layer_str = getattr(args, "reft_layers", "3;9;18;24")
+                if layer_str.strip() == "all":
+                    num_layers = model.config.num_hidden_layers
+                    target_layers = list(range(num_layers))
+                else:
+                    target_layers = [int(x) for x in layer_str.split(";") if len(x) > 0]
 
-            low_rank = int(getattr(args, "reft_rank", 4))
-            eps = float(getattr(args, "reft_eps", 1e-6))
-            embed_dim = int(getattr(model.config, "hidden_size", None) or getattr(model.config, "d_model", None))
-
-            # Build and register alpha bank so checkpoint alphas load correctly
-            alpha_bank = AlphaBank(num_tasks=len(inference_tasks), alpha_init=0.0)
-            def _get_alpha(i: int):
-                return alpha_bank.alphas[i]
-
-            reps = []
-            for l in target_layers:
-                reps.append({
-                    "layer": l,
-                    "component": "block_output",
-                    "low_rank_dimension": low_rank,
-                    "intervention": ReftCLIntervention(
-                        embed_dim=embed_dim,
-                        low_rank_dimension=low_rank,
-                        num_tasks=len(inference_tasks),
-                        get_alpha=_get_alpha,
-                        eps=eps,
-                        dtype=torch.float32,
-                    )
-                })
-
-            cfg = ReftConfig(representations=reps)
-            model = get_reft_model(model, cfg, set_device=False)
-            # Attach alpha bank under the same name used in training so keys match
-            if not hasattr(model, "reftcl_alpha_bank"):
-                model.add_module("reftcl_alpha_bank", alpha_bank)
+                reft_config = {
+                    'target_layers': target_layers,
+                    'low_rank': int(getattr(args, "reft_rank", 4)),
+                    'eps': float(getattr(args, "reft_eps", 1e-6)),
+                    'num_tasks': len(inference_tasks)
+                }
+                
+                model = load_reft_cl_model(model, inference_model_path, reft_config)
+                print_rank_0(f"[REFT-CL] Successfully loaded interventions manually from {inference_model_path}", args.local_rank)
         
         # TODO: add adapters
         if args.CL_method == "LFPT5":
@@ -403,28 +391,8 @@ def main():
             from peft import PeftModel
             model = PeftModel.from_pretrained(model, inference_model_path)
 
-        if args.CL_method == "REFT-CL":
-            # Load checkpoint using pyreft's proper loading method
-            try:
-                # pyreft's load method handles the special file format
-                model.load(inference_model_path)
-                print_rank_0(f"[REFT-CL] Successfully loaded model from {inference_model_path}", args.local_rank)
-            except Exception as e:
-                print_rank_0(f"[REFT-CL] Error loading model: {e}", args.local_rank)
-                # Fallback: try manual loading if pyreft.load fails
-                try:
-                    import glob
-                    intervention_files = glob.glob(os.path.join(inference_model_path, "intkey_*.bin"))
-                    if intervention_files:
-                        print_rank_0(f"[REFT-CL] Found {len(intervention_files)} intervention files, trying manual load", args.local_rank)
-                        # This is a more complex fallback - pyreft.load should work
-                        raise RuntimeError("pyreft.load failed and manual loading not implemented")
-                    else:
-                        raise RuntimeError(f"No intervention files found in {inference_model_path}")
-                except Exception as fallback_e:
-                    print_rank_0(f"[REFT-CL] Fallback loading also failed: {fallback_e}", args.local_rank)
-                    raise
-        elif args.CL_method != "lora" and args.CL_method != "O-LoRA" and args.CL_method != "LFPT5": 
+
+        elif args.CL_method not in ("lora", "O-LoRA", "LFPT5", "REFT-CL"): 
             inference_model = torch.load(os.path.join(inference_model_path, "pytorch_model.bin"))
             for name, param in model.named_parameters():
                 if name in inference_model:
