@@ -1,6 +1,6 @@
 import os
 import torch
-from typing import Dict
+from typing import Dict, List, Union
 
 from model.base_model import CL_Base_Model
 from utils.utils import print_rank_0
@@ -19,13 +19,16 @@ import types
 
 
 class AlphaBank(torch.nn.Module):
-    """Holds shared alphas (one per task) so all layers can reference them."""
+    """Holds shared alphas (one per global task index) so all layers can reference them."""
 
     def __init__(self, num_tasks: int, alpha_init: float = 0.1):
         super().__init__()
         self.alphas = torch.nn.ParameterList(
             [torch.nn.Parameter(torch.tensor(alpha_init, dtype=torch.float32)) for _ in range(num_tasks)]
         )
+
+    def get_alpha(self, global_task_id: int) -> torch.nn.Parameter:
+        return self.alphas[int(global_task_id)]
 
 
 class ReFTCL(CL_Base_Model):
@@ -39,7 +42,7 @@ class ReFTCL(CL_Base_Model):
         super().__init__(model, tokenizer, optimizer, train_task_list, eval_task_list, test_task_list, args)
         self.tasks = list(self.train_task_list.keys())
         self.num_tasks = len(self.tasks)
-        # shared across layers
+        # shared across layers (alphas for all tasks; interventions can pick a subset)
         self.alpha_bank = AlphaBank(self.num_tasks, alpha_init=0.1)
 
         # Inject pyreft model wrapper with our intervention across selected layers
@@ -48,7 +51,25 @@ class ReFTCL(CL_Base_Model):
 
     def _attach_reft_interventions(self):
         """Wrap self.model with pyreft get_reft_model using our intervention."""
-  
+
+        # Detect task-specific layer scheme from args (reft_layer_task_1..8)
+        task_specific_layers = {}
+        using_task_specific = False
+        for _i in range(1, 9):
+            arg_name = f"reft_layer_task_{_i}"
+            task_layer_arg = getattr(self.args, arg_name, None)
+            if isinstance(task_layer_arg, str) and len(task_layer_arg.strip()) > 0:
+                    task_specific_layers[_i - 1] = [int(x) for x in task_layer_arg.split(";") if len(x) > 0]
+                    using_task_specific = True
+
+        if using_task_specific:
+            print_rank_0(f"[ReFT-CL] Using task-specific layer scheme (scheme 2)", self.args.global_rank)
+            self._attach_task_specific_interventions(task_specific_layers)
+        else:
+            print_rank_0(f"[ReFT-CL] Using unified layer scheme (scheme 1)", self.args.global_rank)
+            self._attach_unified_interventions()
+
+    def _attach_unified_interventions(self):
         layer_str = self.args.reft_layers
         if layer_str.strip() == "all":
             num_layers = self.model.config.num_hidden_layers
@@ -61,19 +82,28 @@ class ReFTCL(CL_Base_Model):
         embed_dim = int(getattr(self.model.config, "hidden_size", None) or getattr(self.model.config, "d_model", None))
 
         reps = []
+        # Parse optional subset argument: semicolon-separated global indices, e.g., "0;2;5"
+        subset_arg = getattr(self.args, "reft_task_subset", None)
+        if isinstance(subset_arg, str) and len(subset_arg.strip()) > 0:
+            subset_task_ids = [int(x) for x in subset_arg.split(";") if len(x) > 0]
+        elif isinstance(subset_arg, (list, tuple)):
+            subset_task_ids = [int(x) for x in subset_arg]
+        else:
+            subset_task_ids = list(range(self.num_tasks))
+
         # Provide a getter to share one alpha per task across all layers without duplicating params
-        def _get_alpha(i: int):
-            return self.alpha_bank.alphas[i]
+        def _get_alpha(global_task_id: int):
+            return self.alpha_bank.get_alpha(global_task_id)
+
         for l in target_layers:
             reps.append({
                 "layer": l,
-                # Use generic block_output to avoid model-specific module paths
                 "component": "block_output",
                 "low_rank_dimension": low_rank,
                 "intervention": ReftCLIntervention(
                     embed_dim=embed_dim,
                     low_rank_dimension=low_rank,
-                    num_tasks=self.num_tasks,
+                    task_ids=subset_task_ids,
                     get_alpha=_get_alpha,
                     eps=eps,
                     dtype=torch.float32,
@@ -81,8 +111,47 @@ class ReFTCL(CL_Base_Model):
             })
 
         cfg = ReftConfig(representations=reps)
-        # Replace self.model with reft model in-place
         self.model = get_reft_model(self.model, cfg, set_device=False)
+        self._finalize_model_setup()
+
+    def _attach_task_specific_interventions(self, task_specific_layers: dict):
+        low_rank = int(getattr(self.args, "reft_rank", 4))
+        eps = float(getattr(self.args, "reft_eps", 1e-6))
+        embed_dim = int(getattr(self.model.config, "hidden_size", None) or getattr(self.model.config, "d_model", None))
+
+        # Combine all unique layers
+        all_layers = set()
+        for _task_id, layers in task_specific_layers.items():
+            all_layers.update(layers)
+
+        def _get_alpha(global_task_id: int):
+            return self.alpha_bank.get_alpha(global_task_id)
+
+        reps = []
+        for l in sorted(all_layers):
+            # Determine which tasks map to this layer
+            tasks_for_layer = [tid for tid, ls in task_specific_layers.items() if l in ls]
+            if not tasks_for_layer:
+                continue
+            reps.append({
+                "layer": l,
+                "component": "block_output",
+                "low_rank_dimension": low_rank,
+                "intervention": ReftCLIntervention(
+                    embed_dim=embed_dim,
+                    low_rank_dimension=low_rank,
+                    task_ids=tasks_for_layer,
+                    get_alpha=_get_alpha,
+                    eps=eps,
+                    dtype=torch.float32,
+                )
+            })
+
+        cfg = ReftConfig(representations=reps)
+        self.model = get_reft_model(self.model, cfg, set_device=False)
+        self._finalize_model_setup()
+
+    def _finalize_model_setup(self):
         self.model.print_trainable_parameters()
         n_params = self.model.count_parameters(include_model=False)
         n_params_with_model = self.model.count_parameters(include_model=True)
@@ -145,7 +214,9 @@ class ReFTCL(CL_Base_Model):
         # Enable tasks 1..t (1-indexed externally) => internally 0..t-1
         base_ref = self.model.module if hasattr(self.model, "module") else self.model
         for inter in getattr(base_ref, "interventions", {}).values():
-            if hasattr(inter, "set_active_tasks"):
+            if hasattr(inter, "set_active_by_round"):
+                inter.set_active_by_round(t)
+            elif hasattr(inter, "set_active_tasks"):
                 inter.set_active_tasks(t)
 
     def _debug_verify_saved_interventions(self, save_dir: str, round_idx: int):
@@ -227,24 +298,56 @@ class ReFTCL(CL_Base_Model):
 
     def _calculate_expected_intervention_params(self) -> int:
         """Calculate expected number of intervention parameters for verification."""
-        # Get intervention config
-        layer_str = getattr(self.args, "reft_layers", "3;9;18;24")
-        if layer_str.strip() == "all":
-            num_layers = self.model.config.num_hidden_layers
-            target_layers = list(range(num_layers))
+        # Determine target layers under both schemes
+        task_specific_layers = {}
+        using_task_specific = False
+        for _i in range(1, 9):
+            arg_name = f"reft_layer_task_{_i}"
+            task_layer_arg = getattr(self.args, arg_name, None)
+            if isinstance(task_layer_arg, str) and len(task_layer_arg.strip()) > 0:
+                try:
+                    task_specific_layers[_i - 1] = [int(x) for x in task_layer_arg.split(";") if len(x) > 0]
+                    using_task_specific = True
+                except Exception:
+                    pass
+        if using_task_specific:
+            # Count unique layer-task pairs
+            layer_to_tasks = {}
+            for tid, layers in task_specific_layers.items():
+                for l in layers:
+                    layer_to_tasks.setdefault(l, set()).add(tid)
+            target_layers = sorted(layer_to_tasks.keys())
+            tasks_per_layer = {l: len(layer_to_tasks[l]) for l in target_layers}
         else:
-            target_layers = [int(x) for x in layer_str.split(";") if len(x) > 0]
+            layer_str = getattr(self.args, "reft_layers", "3;9;18;24")
+            if layer_str.strip() == "all":
+                num_layers = self.model.config.num_hidden_layers
+                target_layers = list(range(num_layers))
+            else:
+                target_layers = [int(x) for x in layer_str.split(";") if len(x) > 0]
+            # Under unified scheme, tasks_per_layer is uniform and equals size of subset
+            # Parse optional subset argument
+            subset_arg = getattr(self.args, "reft_task_subset", None)
+            if isinstance(subset_arg, str) and len(subset_arg.strip()) > 0:
+                subset_task_ids = [int(x) for x in subset_arg.split(";") if len(x) > 0]
+            elif isinstance(subset_arg, (list, tuple)):
+                subset_task_ids = [int(x) for x in subset_arg]
+            else:
+                subset_task_ids = list(range(self.num_tasks))
+            tasks_per_layer = {l: len(subset_task_ids) for l in target_layers}
         
         low_rank = int(getattr(self.args, "reft_rank", 4))
         embed_dim = int(getattr(self.model.config, "hidden_size", None) or getattr(self.model.config, "d_model", None))
         
         # Per task per layer: R (embed_dim x low_rank) + W (low_rank x embed_dim) + b (low_rank)
         params_per_task_per_layer = (embed_dim * low_rank) + (low_rank * embed_dim) + low_rank
-        total_expected = len(target_layers) * self.num_tasks * params_per_task_per_layer
+        # Sum over layers the number of tasks assigned to that layer
+        total_task_layer_pairs = sum(tasks_per_layer[l] for l in tasks_per_layer.keys())
+        total_expected = total_task_layer_pairs * params_per_task_per_layer
         
         print_rank_0(f"[DEBUG][ReFTCL] Expected intervention params calculation:", self.args.global_rank)
-        print_rank_0(f"  - Layers: {len(target_layers)} (indices: {target_layers})", self.args.global_rank)
-        print_rank_0(f"  - Tasks: {self.num_tasks}", self.args.global_rank)
+        print_rank_0(f"  - Layers: {len(tasks_per_layer)} (indices: {list(tasks_per_layer.keys())})", self.args.global_rank)
+        print_rank_0(f"  - Task-layer pairs: {total_task_layer_pairs}", self.args.global_rank)
         print_rank_0(f"  - Rank: {low_rank}, Embed dim: {embed_dim}", self.args.global_rank)
         print_rank_0(f"  - Params per task/layer: {params_per_task_per_layer:,}", self.args.global_rank)
         print_rank_0(f"  - Total expected: {total_expected:,}", self.args.global_rank)
@@ -290,18 +393,20 @@ class ReFTCL(CL_Base_Model):
             for inter in getattr(base_ref, "interventions", {}).values():
                 if hasattr(inter, "tasks"):
                     print(f"Freezing {len(inter.tasks)} blocks")
-                    for j in range(self.num_tasks):
-                        block = inter.tasks[j]
+                    for block in inter.tasks:
                         for p in block.parameters():
                             p.requires_grad = False
 
             # Unfreeze current round directions (R_t, W_t, b_t)
             for inter in getattr(base_ref, "interventions", {}).values():
-                if hasattr(inter, "tasks"):
-                    print(f"Unfreezing {len(inter.tasks)} blocks")
-                    block = inter.tasks[i_task]
-                    for p in block.parameters():
-                        p.requires_grad = True
+                if hasattr(inter, "tasks") and hasattr(inter, "task_ids"):
+                    # If current global task id exists in this subset, unfreeze its local block
+                    if i_task in inter.task_ids:
+                        local_idx = inter.task_ids.index(i_task)
+                        print(f"Unfreezing block {local_idx} for global task {i_task}")
+                        block = inter.tasks[local_idx]
+                        for p in block.parameters():
+                            p.requires_grad = True
 
             # Alphas 1..t are trainable, t+1..T are frozen
             for j, a in enumerate(self.alpha_bank.alphas):

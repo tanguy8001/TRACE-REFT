@@ -35,10 +35,11 @@ def load_reft_cl_model(base_model, saved_model_path, reft_config):
     from loreft.reft_cl_intervention import ReftCLIntervention
     
     # Extract config
-    target_layers = reft_config['target_layers']
     low_rank = reft_config['low_rank']
     eps = reft_config['eps']
     num_tasks = reft_config['num_tasks']
+    target_layers = reft_config.get('target_layers')
+    task_specific_layers = reft_config.get('task_specific_layers')
     embed_dim = base_model.config.hidden_size
     
     # Build alpha bank
@@ -48,20 +49,42 @@ def load_reft_cl_model(base_model, saved_model_path, reft_config):
     
     # Build intervention config
     reps = []
-    for l in target_layers:
-        reps.append({
-            "layer": l,
-            "component": "block_output",
-            "low_rank_dimension": low_rank,
-            "intervention": ReftCLIntervention(
-                embed_dim=embed_dim,
-                low_rank_dimension=low_rank,
-                num_tasks=num_tasks,
-                get_alpha=_get_alpha,
-                eps=eps,
-                dtype=torch.float32,
-            )
-        })
+    if isinstance(task_specific_layers, dict) and len(task_specific_layers) > 0:
+        # Merge all unique layers and map to tasks
+        layer_to_tasks = {}
+        for tid, layers in task_specific_layers.items():
+            for l in layers:
+                layer_to_tasks.setdefault(int(l), set()).add(int(tid))
+        for l in sorted(layer_to_tasks.keys()):
+            reps.append({
+                "layer": l,
+                "component": "block_output",
+                "low_rank_dimension": low_rank,
+                "intervention": ReftCLIntervention(
+                    embed_dim=embed_dim,
+                    low_rank_dimension=low_rank,
+                    task_ids=sorted(list(layer_to_tasks[l])),
+                    get_alpha=_get_alpha,
+                    eps=eps,
+                    dtype=torch.float32,
+                )
+            })
+    else:
+        assert isinstance(target_layers, (list, tuple)), "target_layers must be provided for unified scheme"
+        for l in target_layers:
+            reps.append({
+                "layer": int(l),
+                "component": "block_output",
+                "low_rank_dimension": low_rank,
+                "intervention": ReftCLIntervention(
+                    embed_dim=embed_dim,
+                    low_rank_dimension=low_rank,
+                    num_tasks=num_tasks,
+                    get_alpha=_get_alpha,
+                    eps=eps,
+                    dtype=torch.float32,
+                )
+            })
     
     cfg = ReftConfig(representations=reps)
     model = get_reft_model(base_model, cfg, set_device=False)

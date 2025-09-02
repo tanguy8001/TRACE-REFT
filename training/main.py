@@ -202,6 +202,10 @@ def parse_args():
     parser.add_argument('--reft_layers', type=str, default='3;9;18;24', help='Layers to intervene (e.g., 3;9;18;24 or all)')
     parser.add_argument('--reft_rank', type=int, default=4, help='Low-rank dimension r for REFT')
     parser.add_argument('--reft_eps', type=float, default=1e-6, help='Epsilon for direction normalization')
+    # Add task-specific layer arguments (scheme 2)
+    for _i in range(1, 9):  # Support up to 8 tasks
+        parser.add_argument(f'--reft_layer_task_{_i}', type=str, default=None,
+                            help=f'Layers to intervene for task {_i} (e.g., 0;8;16;24)')
     # Precision control
     parser.add_argument(
         '--precision',
