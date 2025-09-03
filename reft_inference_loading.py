@@ -41,11 +41,11 @@ def load_reft_cl_model_for_inference(
     
     print(f"[REFT-CL] Loading base model from {base_model_path}")
     
-    # Load base model
+    # Load base model on GPU
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_path,
         torch_dtype=torch.bfloat16,
-        device_map="auto"
+        device_map="cuda:0"  # Force GPU loading
     )
     
     if tokenizer is None:
@@ -95,7 +95,7 @@ def load_reft_cl_model_for_inference(
     
     # Create REFT model
     cfg = ReftConfig(representations=reps)
-    reft_model = get_reft_model(base_model, cfg, set_device=False)
+    reft_model = get_reft_model(base_model, cfg, set_device=True)  # Let pyreft handle device placement
     
     # Attach alpha bank
     if not hasattr(reft_model, "reftcl_alpha_bank"):
@@ -107,15 +107,8 @@ def load_reft_cl_model_for_inference(
     base_ref = reft_model.module if hasattr(reft_model, "module") else reft_model
     
     for key, intervention in getattr(base_ref, "interventions", {}).items():
-        # Try converted file first, then fall back to original
-        converted_file = os.path.join(saved_model_path, f"converted_intkey_{key}.bin")
-        original_file = os.path.join(saved_model_path, f"intkey_{key}.bin")
-        
-        if os.path.exists(converted_file):
-            intervention_file = converted_file
-            print(f"[REFT-CL] Using converted intervention file: {intervention_file}")
-        else:
-            intervention_file = original_file
+        # Load original intervention file (dtype conversion handled in load_state_dict)
+        intervention_file = os.path.join(saved_model_path, f"intkey_{key}.bin")
         
         if not os.path.exists(intervention_file):
             print(f"[REFT-CL] WARNING: Intervention file not found: {intervention_file}")
@@ -126,7 +119,7 @@ def load_reft_cl_model_for_inference(
         # Load the task-structured state dict
         intervention_state = torch.load(intervention_file, map_location="cpu")
         
-        # Load into the intervention using our custom load_state_dict
+        # Load into the intervention using our custom load_state_dict (handles dtype conversion)
         try:
             missing_keys, unexpected_keys = intervention.load_state_dict(intervention_state, strict=False)
             if missing_keys:
@@ -156,12 +149,15 @@ def load_reft_cl_model_for_inference(
     else:
         print(f"[REFT-CL] WARNING: No alpha file found at {alpha_file}")
     
-    # Set to eval mode
+    # Set to eval mode (device should already be set by pyreft)
     reft_model.eval()
+    
+    # Ensure all interventions are in eval mode
     for intervention in getattr(base_ref, "interventions", {}).values():
         intervention.eval()
     
-    print(f"[REFT-CL] Model loaded successfully and ready for inference")
+    device = next(reft_model.parameters()).device
+    print(f"[REFT-CL] Model loaded successfully and ready for inference on {device}")
     return reft_model, tokenizer
 
 def load_reft_config_from_saved_model(saved_model_path: str) -> Dict[str, Any]:

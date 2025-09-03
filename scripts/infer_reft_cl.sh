@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --output=/cluster/home/tdieudonne/clmm/TRACE/logs/infer_reft_cl_%j.out
 #SBATCH --time=24:00:00
-#SBATCH --gpus-per-node=2
+#SBATCH --gpus-per-node=1
 #SBATCH --partition=gpupr.24h
 #SBATCH --gres=gpumem:38g
 #SBATCH --cpus-per-task=4
@@ -35,7 +35,7 @@ echo "Inference output path: $INFER_OUTPUT_PATH"
 echo "CL method: $cl_method"
 echo "Port: $port"
 #C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten
-deepspeed --include=localhost:0,1 --master_port $port clmm/TRACE/inference/infer_single.py \
+deepspeed --include=localhost:0 --master_port $port clmm/TRACE/inference/infer_single.py \
   --data_path "$DATA_PATH" \
   --data_output_path "$CACHE_PATH" \
   --inference_tasks C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
@@ -54,7 +54,7 @@ deepspeed --include=localhost:0,1 --master_port $port clmm/TRACE/inference/infer
   --inference_output_path "$INFER_OUTPUT_PATH" 2>&1 | tee -a "$INFERENCE_MODEL_PATH"/infer.log
 
 
-echo "Evaluation Post-ProcessingREFT-CL"
+echo "Evaluation Post-Processing REFT-CL"
 
 python3 /cluster/home/tdieudonne/clmm/TRACE/evaluations/modular_evaluator.py \
   --pred_dir /cluster/scratch/tdieudonne/outputs_LLM-CL/cl/REFT-CL/predictions \

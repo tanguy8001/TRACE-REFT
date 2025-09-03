@@ -194,29 +194,33 @@ def main():
         )
         
         if _is_intervenable(model_obj):
-            # REFT-CL model: use pyreft's generation API with unit_locations
+            # REFT-CL model: use pyreft's generation API with proper unit_locations
             base_inputs = {"input_ids": batch["input_ids"], "attention_mask": batch.get("attention_mask")}
             
-            # For REFT-CL, we need to specify unit_locations for interventions
-            # Intervene on all tokens at each targeted layer
+            # Set up unit_locations for interventions (following pyreft pattern)
             seq_len = batch["input_ids"].shape[1]
-            unit_locations = [[list(range(seq_len))] for _ in range(len(model_obj.interventions))]
+            num_interventions = len(model_obj.interventions)
+            
+            # Create intervention_locations: [layers, batch_size, positions]
+            # For each intervention layer, intervene on all tokens
+            intervention_locations = []
+            for _ in range(num_interventions):
+                # Each intervention layer gets the full sequence
+                layer_locations = [list(range(seq_len)) for _ in range(batch["input_ids"].shape[0])]
+                intervention_locations.append(layer_locations)
             
             generation_args = {
                 "base": base_inputs,
-                "unit_locations": {"sources->base": (None, unit_locations)},
+                "unit_locations": {"sources->base": (None, intervention_locations)},
                 "intervene_on_prompt": True,
+                "eos_token_id": gen_kwargs.get("eos_token_id", tokenizer.eos_token_id),
+                "early_stopping": True,
                 **gen_kwargs
             }
-            
-            try:
-                _, out = model_obj.generate(**generation_args)
-                gen_ids = _pick_first_tensor(out)
-            except Exception as e:
-                print_rank_0(f"[REFT-CL] Generation failed: {e}", 0)
-                # Fallback to simple generation
-                out = model_obj.generate(base_inputs, **gen_kwargs)
-                gen_ids = _pick_first_tensor(out)
+
+            _, out = model_obj.generate(**generation_args)
+            gen_ids = _pick_first_tensor(out)
+
         else:
             # Standard model generation
             out = model_obj.generate(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'], **gen_kwargs)
@@ -423,7 +427,14 @@ def main():
                     param.data.copy_(inference_model[name])
             del inference_model
 
-        model.to(device)
+        # Move model to device
+        model = model.to(device)
+        
+        # For REFT-CL, ensure all interventions are on the same device
+        if args.CL_method == "REFT-CL":
+            base_ref = model.module if hasattr(model, "module") else model
+            for intervention in getattr(base_ref, "interventions", {}).values():
+                intervention = intervention.to(device)
 
         for inference_task_id in range(round+1):    # evaluation for previous tasks in a single round
             inference_task = inference_tasks[inference_task_id]
@@ -459,15 +470,12 @@ def main():
             # For REFT-CL, activate tasks up to current inference round
             if args.CL_method == "REFT-CL":
                 base_ref = model.module if hasattr(model, "module") else model
-                try:
-                    for inter in getattr(base_ref, "interventions", {}).values():
-                        if hasattr(inter, "set_active_tasks"):
-                            # Activate tasks up to current inference round (1-indexed)
-                            active_tasks = inference_task_id + 1
-                            inter.set_active_tasks(active_tasks)
-                            print_rank_0(f"[REFT-CL] Activated {active_tasks} tasks for inference", args.local_rank)
-                except Exception:
-                    pass
+                for inter in getattr(base_ref, "interventions", {}).values():
+                    if hasattr(inter, "set_active_tasks"):
+                        # Activate tasks up to current inference round (1-indexed)
+                        active_tasks = inference_task_id + 1
+                        inter.set_active_tasks(active_tasks)
+                        print_rank_0(f"[REFT-CL] Activated {active_tasks} tasks for inference", args.local_rank)
             sources_sequences, predicted_sequences, ground_truths = prediction(model, infer_dataloader)
             
             # Get Accuracy/ROUGE/BLEU/...

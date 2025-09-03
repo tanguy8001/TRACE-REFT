@@ -168,8 +168,8 @@ class DatasetEvaluator:
         for t in list(ACC_TASKS | NON_ACC_TASKS):
             if t in filename:
                 return t
-        raise ValueError(f"Unknown task type in filename: {filename}")
-
+            raise ValueError(f"Unknown task type in filename: {filename}")
+    
     @staticmethod
     def _parse_results_file(file_path: str) -> Tuple[List[str], List[str], List[str]]:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -266,7 +266,7 @@ def main():
         try:
             res = evaluator.evaluate_file(f)
             summary[Path(f).name] = res
-        except Exception as e:
+            except Exception as e:
             logger.error(f"Failed to evaluate {f}: {e}")
 
     logger.info("\n==== Per-file Summary ====")

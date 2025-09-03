@@ -4,65 +4,87 @@ import numpy as np
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 
-# Headless backend
 plt.switch_backend("Agg")
 
 base_dir = "/cluster/scratch/tdieudonne/outputs_LLM-CL/cl/REFT-CL"
+layers = [4, 6, 10, 12]
 num_tasks = 8
-layer_name = "layer_4"
 
-weight_matrices = []
-rotate_matrices = []
+# Define colors per layer
+colors = plt.get_cmap("tab10").colors
+layer_colors = {layer: colors[i] for i, layer in enumerate(layers)}
 
-for task_nb in range(num_tasks):
-    file_path = os.path.join(base_dir, str(task_nb), f"intkey_{layer_name}_comp_block_output_unit_pos_nunit_1#0.bin")
-    if not os.path.exists(file_path):
-        print(f"⚠️ File missing for task {task_nb}: {file_path}")
-        continue
+# Markers for matrix types
+markers = {'weight': 'o', 'rotate_layer': '^'}
 
-    state = torch.load(file_path, map_location="cpu")
-    weight_key = f"tasks.{task_nb}.weight"
-    rotate_key = f"tasks.{task_nb}.rotate_layer"
+# Collect matrices
+data = {'weight': [], 'rotate_layer': []}
+layer_labels = {'weight': [], 'rotate_layer': []}
+task_labels = {'weight': [], 'rotate_layer': []}
 
-    if weight_key in state:
-        weight_matrices.append(state[weight_key].float().flatten().numpy())
-    else:
-        print(f"⚠️ Weight not found for task {task_nb}")
+for layer in layers:
+    for task_nb in range(num_tasks):
+        file_path = os.path.join(
+            base_dir, str(task_nb),
+            f"intkey_layer_{layer}_comp_block_output_unit_pos_nunit_1#0.bin"
+        )
+        if not os.path.exists(file_path):
+            print(f"⚠️ Missing file: {file_path}")
+            continue
 
-    if rotate_key in state:
-        rotate_matrices.append(state[rotate_key].float().flatten().numpy())
-    else:
-        print(f"⚠️ Rotate_layer not found for task {task_nb}")
+        state = torch.load(file_path, map_location="cpu")
 
-# Stack into arrays
-weight_data = np.stack(weight_matrices)
-rotate_data = np.stack(rotate_matrices)
+        for mat_type in ['weight', 'rotate_layer']:
+            key = f"tasks.{task_nb}.{mat_type}"
+            if key in state:
+                data[mat_type].append(state[key].float().flatten().numpy())
+                layer_labels[mat_type].append(layer)
+                task_labels[mat_type].append(task_nb)
 
-# PCA
-pca_weight = PCA(n_components=3, svd_solver='randomized', random_state=42)
-weight_pca = pca_weight.fit_transform(weight_data)
+# Convert to arrays
+weight_data = np.stack(data['weight'])
+rotate_data = np.stack(data['rotate_layer'])
 
-pca_rotate = PCA(n_components=3, svd_solver='randomized', random_state=42)
-rotate_pca = pca_rotate.fit_transform(rotate_data)
+# PCA to 3 components
+weight_pca = PCA(n_components=3, svd_solver='randomized', random_state=42).fit_transform(weight_data)
+rotate_pca = PCA(n_components=3, svd_solver='randomized', random_state=42).fit_transform(rotate_data)
 
-# Plotting both in same figure
+# Plot
 fig = plt.figure(figsize=(10, 8))
 ax = fig.add_subplot(111, projection='3d')
 
 # Plot weight matrices
-ax.scatter(weight_pca[:,0], weight_pca[:,1], weight_pca[:,2], c='blue', label='Weight', s=50)
+for i, point in enumerate(weight_pca):
+    ax.scatter(point[0], point[1], point[2],
+               c=[layer_colors[layer_labels['weight'][i]]],
+               marker=markers['weight'], s=60,
+               label=f"Layer {layer_labels['weight'][i]}" if i==0 else "")
 
 # Plot rotate_layer matrices
-ax.scatter(rotate_pca[:,0], rotate_pca[:,1], rotate_pca[:,2], c='red', label='Rotate_layer', s=50)
+for i, point in enumerate(rotate_pca):
+    ax.scatter(point[0], point[1], point[2],
+               c=[layer_colors[layer_labels['rotate_layer'][i]]],
+               marker=markers['rotate_layer'], s=60,
+               label=f"Layer {layer_labels['rotate_layer'][i]}" if i==0 else "")
 
 ax.set_xlabel("PC1")
 ax.set_ylabel("PC2")
 ax.set_zlabel("PC3")
-ax.set_title(f"PCA of Weight & Rotate_layer Matrices for {layer_name}")
-ax.legend()
+ax.set_title("PCA of Weight & Rotate_layer Matrices (Layers 4,6,10,12)")
 
+# Custom legend
+from matplotlib.lines import Line2D
+legend_elements = [
+    Line2D([0], [0], marker='o', color='k', label='Weight', linestyle='None', markersize=8),
+    Line2D([0], [0], marker='^', color='k', label='Rotate_layer', linestyle='None', markersize=8)
+]
+for layer in layers:
+    legend_elements.append(Line2D([0], [0], marker='o', color=layer_colors[layer], label=f'Layer {layer}', linestyle='None', markersize=6))
+
+ax.legend(handles=legend_elements, loc='best')
 plt.tight_layout()
-output_file = os.path.join(base_dir, f"pca_weight_rotate_layer_final_task_rounds_{layer_name}.png")
+
+output_file = os.path.join(base_dir, "pca_layers_4_6_10_12.png")
 plt.savefig(output_file)
 plt.close()
-print(f"✅ Saved combined PCA plot to {output_file}")
+print(f"✅ Saved PCA plot to {output_file}")

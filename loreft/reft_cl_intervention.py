@@ -84,8 +84,8 @@ class ReftCLIntervention(
         for i in range(self.active_tasks):
             block = self.tasks[i]
             # Ensure input matches block params dtype to avoid dtype mismatch
-            target_dtype = block.rotate_layer.weight.dtype
-            h_cast = h.to(target_dtype)
+            # Use bfloat16 consistently for all operations
+            h_cast = h.to(torch.bfloat16)
             # R h
             rotated_base = block.rotate_layer(h_cast)
             # W h + b
@@ -151,7 +151,12 @@ class ReftCLIntervention(
             if task_state:
                 try:
                     # Directly set parameters to avoid pyreft's load_state_dict issues
+                    # Convert all parameters to bfloat16 for dtype consistency
                     for param_name, param_value in task_state.items():
+                        if torch.is_tensor(param_value):
+                            # Convert to bfloat16 to match model dtype
+                            param_value = param_value.to(torch.bfloat16)
+                        
                         if param_name == "learned_source.weight":
                             if hasattr(task_module, 'learned_source') and hasattr(task_module.learned_source, 'weight'):
                                 task_module.learned_source.weight.data.copy_(param_value)
@@ -162,7 +167,7 @@ class ReftCLIntervention(
                             if hasattr(task_module, 'rotate_layer') and hasattr(task_module.rotate_layer, 'parametrizations'):
                                 task_module.rotate_layer.parametrizations.weight.original.data.copy_(param_value)
                     
-                    print(f"[REFT-CL] Successfully loaded task {i} parameters")
+                    print(f"[REFT-CL] Successfully loaded task {i} parameters (converted to bfloat16)")
                 except Exception as e:
                     print(f"[DEBUG] Error loading task {i}: {e}")
                     print(f"[DEBUG] Task {i} state keys: {list(task_state.keys())}")
