@@ -266,7 +266,7 @@ def main():
         try:
             res = evaluator.evaluate_file(f)
             summary[Path(f).name] = res
-            except Exception as e:
+        except Exception as e:
             logger.error(f"Failed to evaluate {f}: {e}")
 
     logger.info("\n==== Per-file Summary ====")
