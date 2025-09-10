@@ -89,25 +89,18 @@ def load_reft_cl_model_for_inference(
                 num_tasks=num_tasks,
                 get_alpha=_get_alpha,
                 eps=eps,
-                dtype=torch.bfloat16,  # Match the base model's dtype
+                dtype=torch.bfloat16,
             )
         })
     
-    # Create REFT model
     cfg = ReftConfig(representations=reps)
-    reft_model = get_reft_model(base_model, cfg, set_device=True)  # Let pyreft handle device placement
+    reft_model = get_reft_model(base_model, cfg, set_device=True)
     
-    # Attach alpha bank
-    if not hasattr(reft_model, "reftcl_alpha_bank"):
-        reft_model.add_module("reftcl_alpha_bank", alpha_bank)
+    reft_model.add_module("reftcl_alpha_bank", alpha_bank)
     
     print(f"[REFT-CL] Loading intervention weights from {saved_model_path}")
     
-    # Load intervention weights with task structure
-    base_ref = reft_model.module if hasattr(reft_model, "module") else reft_model
-    
-    for key, intervention in getattr(base_ref, "interventions", {}).items():
-        # Load original intervention file (dtype conversion handled in load_state_dict)
+    for key, intervention in reft_model.interventions.items():
         intervention_file = os.path.join(saved_model_path, f"intkey_{key}.bin")
         
         if not os.path.exists(intervention_file):
@@ -153,27 +146,17 @@ def load_reft_cl_model_for_inference(
     reft_model.eval()
     
     # Ensure all interventions are in eval mode
-    for intervention in getattr(base_ref, "interventions", {}).values():
+    for intervention in reft_model.interventions.values():
         intervention.eval()
     
     device = next(reft_model.parameters()).device
     print(f"[REFT-CL] Model loaded successfully and ready for inference on {device}")
     return reft_model, tokenizer
 
+
 def load_reft_config_from_saved_model(saved_model_path: str) -> Dict[str, Any]:
-    """Load REFT configuration from a saved model directory."""
     config_file = os.path.join(saved_model_path, "reft_config.json")
-    
-    if os.path.exists(config_file):
-        with open(config_file, 'r') as f:
-            config = json.load(f)
-        print(f"[REFT-CL] Loaded config from {config_file}: {config}")
-        return config
-    else:
-        print(f"[REFT-CL] No config file found at {config_file}, using defaults")
-        return {
-            'reft_layers': '3;9;18;24',
-            'reft_rank': 4,
-            'reft_eps': 1e-6,
-            'num_tasks': 8  # Default to 8 tasks
-        }
+    with open(config_file, 'r') as f:
+        config = json.load(f)
+    print(f"[REFT-CL] Loaded config from {config_file}: {config}")
+    return config

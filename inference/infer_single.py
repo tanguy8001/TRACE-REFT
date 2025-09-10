@@ -332,39 +332,20 @@ def main():
         # REFT-CL: use our new task-structured loading mechanism
         if args.CL_method == "REFT-CL":
             print_rank_0("[REFT-CL] Loading model with task-structured interventions...", args.local_rank)
+            from reft_inference_loading import load_reft_cl_model_for_inference, load_reft_config_from_saved_model
+            reft_config = load_reft_config_from_saved_model(inference_model_path)
+
+            reft_config['num_tasks'] = len(inference_tasks)
             
-            try:
-                from reft_inference_loading import load_reft_cl_model_for_inference, load_reft_config_from_saved_model
-                
-                # Load config from saved model or use defaults
-                reft_config = load_reft_config_from_saved_model(inference_model_path)
-                
-                # Override with command line args if provided
-                if hasattr(args, 'reft_layers') and args.reft_layers:
-                    reft_config['reft_layers'] = args.reft_layers
-                if hasattr(args, 'reft_rank') and args.reft_rank:
-                    reft_config['reft_rank'] = args.reft_rank
-                if hasattr(args, 'reft_eps') and args.reft_eps:
-                    reft_config['reft_eps'] = args.reft_eps
-                
-                # Set num_tasks based on inference tasks
-                reft_config['num_tasks'] = len(inference_tasks)
-                
-                print_rank_0(f"[REFT-CL] Using config: {reft_config}", args.local_rank)
-                
-                # Load the model with task-structured interventions
-                model, tokenizer = load_reft_cl_model_for_inference(
-                    base_model_path=args.model_name_or_path,
-                    saved_model_path=inference_model_path,
-                    reft_config=reft_config,
-                    tokenizer=tokenizer
-                )
-                
-                print_rank_0(f"[REFT-CL] Successfully loaded model from {inference_model_path}", args.local_rank)
-                
-            except Exception as load_error:
-                print_rank_0(f"[REFT-CL] Loading failed: {load_error}", args.local_rank)
-                raise
+            print_rank_0(f"[REFT-CL] Using config: {reft_config}", args.local_rank)
+            model, tokenizer = load_reft_cl_model_for_inference(
+                base_model_path=args.model_name_or_path,
+                saved_model_path=inference_model_path,
+                reft_config=reft_config,
+                tokenizer=tokenizer
+            )
+            print_rank_0(f"[REFT-CL] Successfully loaded model from {inference_model_path}", args.local_rank)
+
         
         # TODO: add adapters
         if args.CL_method == "LFPT5":
