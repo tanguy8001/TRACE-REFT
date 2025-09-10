@@ -1,0 +1,30 @@
+[33mfbe2b04[m[33m ([m[1;36mHEAD -> [m[1;32mbackup-main[m[33m)[m Remove large train.json from repo
+[33m6728f8d[m Cleaned up and testing single loreft on NumGLUE-cm to test the inference and training params with LLAMA-7B
+[33m4ca5167[m[33m ([m[1;31morigin/backup-main[m[33m)[m Loading works, double-checking inference/generation
+[33me26dec9[m Loading works, double-checking inference/generation
+[33mcae8f6e[m[33m ([m[1;31morigin/main[m[33m)[m Training works and saving of intervention params work
+[33mb4026db[m Add requirements file for local dev
+[33m33ce42d[m Corrected intervention params not trained properly + not saved properly
+[33m44929ae[m Attempt at correcting loading and saving issue of intervention parameters
+[33m1254965[m System prompt doesn't work well for finetuning, must be wrongly implemented
+[33m65fe85a[m Implemented rigorous inference and eval
+[33m89b2a1f[m Sunday backup in case Euler crashes
+[33m3481a6b[m bf16 now works, correcting inference script
+[33m4a78cae[m bf16 now works, correcting inference script
+[33m52ecde5[m Tentative Fix for ALPHAS, to CHECKgit add .!
+[33mc013051[m Problème des alphas : pas enregistrés dans les paramètres de l'optimizer
+[33m43b3beb[m Alphas not trained properly, to DEBUG
+[33mb84b960[m Prototype runs in float32, DeepSeed ZeRO 2 instead of 3 (comms issue in multigpu otherwise)
+[33me0cc461[m Runs the prototype (no idea of correctness LOL)
+[33mba26b91[m Almost runs REFT-CL *prototype* (doesn't use REFT Trainer which annoys me, but associated Data Collators can be tedious
+[33m4c19a43[m Almost runs REFT-CL *prototype* (doesn't use REFT Trainer which annoys me, but associated Data Collators can be tedious
+[33m7a5a520[m Almost runs REFT-CL *prototype* (doesn't use REFT Trainer which annoys me, but associated Data Collators can be tedious
+[33mdeecd6c[m new env + loreft inside of TRACE, now need to implement reft-cl!
+[33ma33720d[m new env + loreft inside of TRACE, now need to implement reft-cl!
+[33m1328f4c[m Works
+[33m600a403[m Adjusted batch size and dataset size after OOM with BS 2 and 5000 samples
+[33m1aca1c1[m Changed to 500 samples training, bigger context and generation length. Need to switch to 5000 samples for better numbers
+[33m5916b16[m Changed to 500 samples training, bigger context and generation length. Need to switch to 5000 samples for better numbers
+[33mac20345[m Adapted to LLAMA 2 7B Chat and added the conda envs to install
+[33m30bdaa5[m first commit
+[33m71ee55f[m first commit
