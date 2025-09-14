@@ -1,35 +1,7 @@
-#from transformers import T5ForConditionalGeneration, T5Tokenizer
-#import os
-#
-#save_dir = "initial_model"
-#os.makedirs(save_dir, exist_ok=True)
-#
-## Disable model parallelism checks that can trigger DeepSpeed logic
-#import transformers.modeling_utils as modeling_utils
-#modeling_utils.is_torch_available = lambda: True
-#modeling_utils.unwrap_model = lambda x, **kwargs: x  # Bypass wrapping
-#
-## Load and save
-#model = T5ForConditionalGeneration.from_pretrained("t5-large")
-#tokenizer = T5Tokenizer.from_pretrained("t5-large")
-#
-#model.save_pretrained(save_dir)
-#tokenizer.save_pretrained(save_dir)
-#import os
-#
-## Must be set before importing transformers
-#os.environ["HF_HOME"] = "/cluster/scratch/tdieudonne/hf_home"
-#
-#from transformers import AutoModelForCausalLM, AutoTokenizer
-#
-#save_dir = "/cluster/scratch/tdieudonne/initial_model/llama-7b-hf"
-#repo_id = "yahma/llama-7b-hf"
-#
-#tok = AutoTokenizer.from_pretrained(repo_id, trust_remote_code=True)
-#model = AutoModelForCausalLM.from_pretrained(repo_id, trust_remote_code=True)
-#
-#tok.save_pretrained(save_dir)
-#model.save_pretrained(save_dir)
+# srun --ntasks=1 --cpus-per-task=4 --gpus=1 --gres=gpumem:38912m --time=24:00:00 --mem-per-cpu=16384 --pty b>
+#module load eth_proxy
+#module load stack/2024-06 cuda/12.8.0
+#conda activate reftcl
 
 import os
 import sys

@@ -249,13 +249,28 @@ def compute_metrics(
                         generation = extract_answer_number(raw_generation)
                         if abs(float(extract_answer_number(answer)) - generation) <= 0.001:
                             correct_count += 1
+                    elif task == "numglue-cm":
+                        # Numeric comparison with small tolerance
+                        answer = example["answer"].strip()
+                        generation = extract_answer_number(raw_generation)
+                        try:
+                            ans_val = float(answer)
+                            if abs(ans_val - generation) <= 0.001:
+                                correct_count += 1
+                        except Exception:
+                            pass
                             
                     # log
                     total_count += 1
                     if task not in ["alpaca", "instruct", "ultrafeedback", "ultrafeedback_pair"]:
                         metric_str = round(correct_count / total_count, 3)
                         eval_iterator.set_postfix({"em": metric_str})
-                        instruction = example["question"] if task == "gsm8k" else example["instruction"]
+                        if task == "gsm8k":
+                            instruction = example["question"]
+                        elif task == "numglue-cm":
+                            instruction = example["prompt"]
+                        else:
+                            instruction = example["instruction"]
                         generations += [{
                             "instruction": instruction,
                             "raw_generation": raw_generation,

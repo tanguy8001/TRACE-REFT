@@ -155,4 +155,23 @@ task_config = {
             }
         }
     },
+    "numglue-cm": {
+        "train_datasets": ["NumGLUE-cm"],
+        "eval_datasets": ["NumGLUE-cm"],
+        "task_prompt_template": alpaca_prompt_no_input_template,
+        "trigger_tokens": "### Response:",
+        "generation_args": {
+            True: {
+                "max_new_tokens": 128,
+                "do_sample": False,
+            },
+            False: {
+                "max_new_tokens": 128,
+                "temperature": 0.1,
+                "top_p": 0.95,
+                "top_k": 40,
+                "do_sample": True
+            }
+        }
+    },
 }

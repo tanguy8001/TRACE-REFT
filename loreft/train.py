@@ -131,7 +131,7 @@ def finetune(
 
     assert task in {
         "commonsense", "math", "alpaca", "instruct", "ultrafeedback", "glue", "gsm8k",
-        "ultrafeedback_pair"
+        "ultrafeedback_pair", "numglue-cm"
     }
 
     dtype = dtype_mapping[dtype]
@@ -435,7 +435,8 @@ def finetune(
 
     # Optional single-sample REFT-steered generation sanity check
     if task not in classification_tasks:
-        sanity_prompt = "How to keep a healthy lifestyle?"
+        #sanity_prompt = "How to keep a healthy lifestyle?"
+        sanity_prompt = "Solve the following math problem.\nQuestion:\nJason runs at a constant speed of 460 m/s. How many km can he cover in 38 seconds\nAnswer:"
         prompt_text = alpaca_prompt_no_input_template % sanity_prompt
         inputs = tokenizer(prompt_text, return_tensors="pt")
         input_ids = inputs["input_ids"].to(device)
@@ -502,7 +503,9 @@ def finetune(
             if is_wandb:
                 wandb.log(stats)
             generations = stats if generations is None else generations
-            result_json_file_name = f"{output_dir}/{run_name}/{dataset_name}_{split}_outputs.json"
+            # Ensure dataset name does not introduce directories in the filename
+            safe_dataset_name = dataset_name.replace("/", "_")
+            result_json_file_name = f"{output_dir}/{run_name}/{safe_dataset_name}_{split}_outputs.json"
             with open(result_json_file_name, 'w') as json_file:
                 json.dump(generations, json_file, indent=4)
 

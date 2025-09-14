@@ -128,16 +128,34 @@ class LoReftSupervisedDataset(ReftDataset):
         elif self.task == "math": # we strip since these are model generated examples.
             base_prompt = self.task_prompt_template % (data_item['instruction'])
             base_input = base_prompt + data_item["output"] + self.tokenizer.eos_token
-        elif self.task in ["alpaca", "instruct", "ultrafeedback", "ultrafeedback_pair", "tatsu-lab/alpaca_eval"]:
-            if 'input' not in data_item or data_item['input'] == "":
+        elif self.task in ["alpaca", "instruct", "ultrafeedback", "ultrafeedback_pair", "tatsu-lab/alpaca_eval", "numglue-cm"]:
+            if ('input' not in data_item or data_item['input'] == "") and self.task != "numglue-cm":
                 base_prompt = alpaca_prompt_no_input_template % (data_item['instruction'])
             else:
-                base_prompt = self.task_prompt_template % (data_item['instruction'], data_item['input'])
+                if self.task != "numglue-cm":
+                    base_prompt = self.task_prompt_template % (data_item['instruction'], data_item['input'])
             if self.task == "ultrafeedback_pair" and self.data_split == "train":
                 # base input takes rejected output to steer away from.
                 base_input = base_prompt + data_item["rejected_output"] + self.tokenizer.eos_token
             else:
-                base_input = base_prompt + data_item["output"] + self.tokenizer.eos_token
+                if self.task == "numglue-cm":
+                    # NumGLUE-cm uses custom fields: prompt/answer
+                    # We map into the same template: instruction-only prompt
+                    # Expect dataset json with keys: {"prompt": str, "answer": str}
+                    prompt_text = data_item.get("prompt", "")
+                    # Remove a trailing "Answer:" marker if present to avoid redundancy with the template
+                    lines = prompt_text.splitlines()
+                    if lines:
+                        last = lines[-1].strip()
+                        last_lc = last.lower().rstrip(":")
+                        if last_lc == "answer":
+                            lines = lines[:-1]
+                            prompt_text = "\n".join(lines).rstrip()
+                    answer_text = data_item.get("answer", "")
+                    base_prompt = alpaca_prompt_no_input_template % (prompt_text)
+                    base_input = base_prompt + answer_text + self.tokenizer.eos_token
+                else:
+                    base_input = base_prompt + data_item["output"] + self.tokenizer.eos_token
         elif self.task == "gsm8k": 
             if "Meta-Llama-3-8B-Instruct" in self.tokenizer.name_or_path: # pretty bad workaround for llama-3, forgive me
                 system_prompt = "You are a helpful assistant."

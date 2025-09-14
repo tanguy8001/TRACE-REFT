@@ -102,10 +102,6 @@ def load_reft_cl_model_for_inference(
     
     for key, intervention in reft_model.interventions.items():
         intervention_file = os.path.join(saved_model_path, f"intkey_{key}.bin")
-        
-        if not os.path.exists(intervention_file):
-            print(f"[REFT-CL] WARNING: Intervention file not found: {intervention_file}")
-            continue
             
         print(f"[REFT-CL] Loading intervention {key} from {intervention_file}")
         
