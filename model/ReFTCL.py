@@ -90,9 +90,8 @@ class ReFTCL(CL_Base_Model):
 
         # By default, activate zero tasks (no edit) until training starts
         base_ref = self.model.module if hasattr(self.model, "module") else self.model
-        for inter in getattr(base_ref, "interventions", {}).values():
-            if hasattr(inter, "set_active_tasks"):
-                inter.set_active_tasks(0)
+        for inter in base_ref.interventions.values():
+            inter.set_active_tasks(0)
 
         # Register alpha bank once at the top-level model so params appear only once
         if not hasattr(self.model, "reftcl_alpha_bank"):
@@ -115,16 +114,14 @@ class ReFTCL(CL_Base_Model):
                         prefix = args[0]
                 except Exception:
                     prefix = ""
-                try:
-                    alpha_bank = getattr(self_obj, 'reftcl_alpha_bank', None)
-                    if alpha_bank is not None and hasattr(alpha_bank, 'alphas'):
-                        for i, p in enumerate(alpha_bank.alphas):
-                            base_name = f"reftcl_alpha_bank.alphas.{i}"
-                            full_name = f"{prefix}.{base_name}" if prefix else base_name
-                            if full_name not in seen:
-                                yield full_name, p
-                except Exception:
-                    pass
+
+                alpha_bank = self_obj.reftcl_alpha_bank
+                for i, p in enumerate(alpha_bank.alphas):
+                    base_name = f"reftcl_alpha_bank.alphas.{i}"
+                    full_name = f"{prefix}.{base_name}" if prefix else base_name
+                    if full_name not in seen:
+                        yield full_name, p
+
             base_model.named_parameters = types.MethodType(_named_parameters_with_alpha, base_model)
             print("[DEBUG][ReFTCL] Patched model.named_parameters to include alpha bank params.")
         except Exception as e:
@@ -349,14 +346,11 @@ class ReFTCL(CL_Base_Model):
             # Alphas 1..t are trainable, t+1..T are frozen
             for j, a in enumerate(self.alpha_bank.alphas):
                 a.requires_grad = (j <= i_task)
-            try:
-                flags = [p.requires_grad for p in self.alpha_bank.alphas]
-                print(f"[DEBUG][ReFTCL] round {round_idx} alpha requires_grad flags: {flags}")
-                # Also preview trainable params that include alpha/reft
-                trainable_alpha = [n for n, p in (self.model.named_parameters()) if p.requires_grad and ("alpha" in n.lower() or "reft" in n.lower())]
-                print(f"[DEBUG][ReFTCL] trainable alpha-like params this round: {trainable_alpha}")
-            except Exception:
-                pass
+
+            flags = [p.requires_grad for p in self.alpha_bank.alphas]
+            print(f"[DEBUG][ReFTCL] round {round_idx} alpha requires_grad flags: {flags}")
+            trainable_alpha = [n for n, p in (self.model.named_parameters()) if p.requires_grad and ("alpha" in n.lower() or "reft" in n.lower())]
+            print(f"[DEBUG][ReFTCL] trainable alpha-like params this round: {trainable_alpha}")
 
             # Activate tasks up to current round
             self._set_active_round(round_idx)

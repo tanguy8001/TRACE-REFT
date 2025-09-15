@@ -16,7 +16,7 @@ DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchm
 MODEL_PATH="/cluster/scratch/${USERNAME}/initial_model/${MODEL_NAME}"
 OUTPUT_DIR="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}"
 DATA_CACHE="/cluster/scratch/${USERNAME}/reft_cl_outputs"
-mkdir -p "$OUTPUT_DIR"j
+mkdir -p "$OUTPUT_DIR"
 mkdir -p "$DATA_CACHE"
 mkdir -p "$DATA_PATH"
 
@@ -34,7 +34,7 @@ echo "CL method: $cl_method"
 echo "Port: $port"
 # 5,3,7,5,3,5,5,7
 #C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten
-deepspeed  --include=localhost:0 --master_port $port clmm/TRACE/training/main.py \
+deepspeed  --include=localhost:0 --master_port $port /cluster/home/${USERNAME}/clmm/TRACE/training/main.py \
   --data_path "${DATA_PATH}" \
   --dataset_name C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
   --data_output_path "${DATA_CACHE}" \

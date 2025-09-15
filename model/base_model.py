@@ -145,7 +145,7 @@ class CL_Base_Model:
 
 
     def train_one_task(self, task, i_task, epochs):
-        # 在单独某个任务上训练
+
         if self.args.local_rank == -1:
             device = torch.device("cuda")
         else:
@@ -203,13 +203,7 @@ class CL_Base_Model:
                             ignore_index=-100,
                         )
 
-                # If loss is still None or non-finite, print detailed debug info and raise
-                if loss is None or not torch.isfinite(loss):
-                    self._debug_log_training_tensors(batch, outputs, step, epoch)
-                    raise RuntimeError("Training loss is None or non-finite; see debug log above.")
-                # Update the description to include current step and loss, if needed
                 if self.args.global_rank == 0:
-                    # Update the progress bar
                     progress_bar.update(1)
                     loss_str = f"{loss.item():.4f}" if torch.is_tensor(loss) else "None"
                     description = f"Epoch {epoch+1}, Step {step}, Loss: {loss_str}"
@@ -219,14 +213,6 @@ class CL_Base_Model:
                 # Correct gradient accumulation steps are handled withing the deepspeed engine's backward call.
                 self.model.step()
 
-
-            # Evaluate perplexity on the validation set.
-            # print_rank_0(
-            #     f"***** Evaluating perplexity, Epoch {epoch+1}/{epochs} *****",
-            #     self.args.global_rank)
-            # perplexity = self.perplexity_evaluation(eval_dataloader, device)
-            # print_rank_0(f"ppl: {perplexity}", self.args.global_rank)
-            # self.model.tput_timer.update_epoch_count()
     
     
     def train_continual(self):
