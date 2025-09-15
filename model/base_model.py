@@ -84,65 +84,6 @@ class CL_Base_Model:
             # Best-effort only
             pass
 
-    def perplexity_evaluation(self, eval_dataloader, device):
-        # 验证集上测困惑度
-        self.model.eval()
-        losses = 0
-        for step, batch in enumerate(eval_dataloader):
-            # implementation, batch = {k: v.to(device) for k, v in batch.items()}
-            del batch['sources']
-            batch = to_device(batch, device)
-            with torch.no_grad():
-                # If wrapped by DeepSpeed, underlying module may be a pyreft IntervenableModel
-                underlying = self.model.module if hasattr(self.model, 'module') else self.model
-                if hasattr(underlying, 'interventions'):
-                    base_inputs = {"input_ids": batch["input_ids"], "attention_mask": batch.get("attention_mask")}
-                    outputs = self.model(base_inputs, labels=batch.get("labels"))
-                    # If wrapper returns (base_out, cf_out), prefer the element with logits/loss
-                    if isinstance(outputs, (tuple, list)):
-                        picked = None
-                        for e in outputs:
-                            if hasattr(e, 'loss') or hasattr(e, 'logits'):
-                                picked = e
-                                break
-                        outputs = picked if picked is not None else outputs
-                else:
-                    outputs = self.model(**batch, use_cache=False)
-            # Robust loss extraction (handles tuple returns or missing .loss)
-            labels = batch.get("labels")
-            loss = None
-            if isinstance(outputs, tuple) and len(outputs) > 0 and torch.is_tensor(outputs[0]) and outputs[0].ndim == 0:
-                loss = outputs[0]
-            elif hasattr(outputs, "loss") and outputs.loss is not None:
-                loss = outputs.loss
-            elif labels is not None:
-                logits = getattr(outputs, "logits", None)
-                if logits is None and isinstance(outputs, tuple):
-                    # Best-effort: pick first tensor with 3 dims as logits
-                    for t in outputs:
-                        if torch.is_tensor(t) and t.ndim >= 3:
-                            logits = t
-                            break
-                if logits is not None:
-                    shift_logits = logits[..., :-1, :].contiguous()
-                    shift_labels = labels[..., 1:].contiguous()
-                    loss = F.cross_entropy(
-                        shift_logits.view(-1, shift_logits.size(-1)),
-                        shift_labels.view(-1),
-                        ignore_index=-100,
-                    )
-            losses += loss.float()
-        losses = losses / (step + 1)
-        try:
-            perplexity = torch.exp(losses)
-        except OverflowError:
-            perplexity = float("inf")
-        try:
-            perplexity = get_all_reduce_mean(perplexity).item()
-        except:
-            pass
-        return perplexity
-
 
     def train_one_task(self, task, i_task, epochs):
 
@@ -151,10 +92,8 @@ class CL_Base_Model:
         else:
             torch.cuda.set_device(self.args.local_rank)
             device = torch.device("cuda", self.args.local_rank)
-        
-        #### TRAIN ####
+
         train_dataloader = self.train_task_list[task]
-        eval_dataloader = self.eval_task_list[task]
         total_steps = epochs * len(train_dataloader)
         progress_bar = tqdm(total=total_steps, leave=True, disable=(self.args.global_rank != 0))
         for epoch in range(epochs):
@@ -170,38 +109,12 @@ class CL_Base_Model:
                 underlying = self.model.module if hasattr(self.model, 'module') else self.model
                 if hasattr(underlying, 'interventions'):
                     base_inputs = {"input_ids": batch["input_ids"], "attention_mask": batch.get("attention_mask")}
-                    outputs = self.model(base_inputs, labels=batch.get("labels"))
-                    if isinstance(outputs, (tuple, list)):
-                        picked = None
-                        for e in outputs:
-                            if hasattr(e, 'loss') or hasattr(e, 'logits'):
-                                picked = e
-                                break
-                        outputs = picked if picked is not None else outputs
+                    # outputs is (None, <class 'transformers.modeling_outputs.CausalLMOutputWithPast'>)
+                    outputs = self.model(base_inputs, labels=batch.get("labels"))[1]
                 else:
                     outputs = self.model(**batch, use_cache=False)
-                # Robust loss extraction
-                labels = batch.get("labels")
-                loss = None
-                if isinstance(outputs, tuple) and len(outputs) > 0 and torch.is_tensor(outputs[0]) and outputs[0].ndim == 0:
-                    loss = outputs[0]
-                elif hasattr(outputs, "loss") and outputs.loss is not None:
-                    loss = outputs.loss
-                elif labels is not None:
-                    logits = getattr(outputs, "logits", None)
-                    if logits is None and isinstance(outputs, tuple):
-                        for t in outputs:
-                            if torch.is_tensor(t) and t.ndim >= 3:
-                                logits = t
-                                break
-                    if logits is not None:
-                        shift_logits = logits[..., :-1, :].contiguous()
-                        shift_labels = labels[..., 1:].contiguous()
-                        loss = F.cross_entropy(
-                            shift_logits.view(-1, shift_logits.size(-1)),
-                            shift_labels.view(-1),
-                            ignore_index=-100,
-                        )
+
+                loss = outputs.loss
 
                 if self.args.global_rank == 0:
                     progress_bar.update(1)

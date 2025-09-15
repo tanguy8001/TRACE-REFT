@@ -16,6 +16,7 @@ except Exception:
         raise ImportError("pyreft get_reft_model/ReftConfig not found; please update pyreft") from e
 from loreft.reft_cl_intervention import ReftCLIntervention
 import types
+import json
 
 
 class AlphaBank(torch.nn.Module):
@@ -263,35 +264,32 @@ class ReFTCL(CL_Base_Model):
 
             # DON'T use pyreft's save - it doesn't preserve our task structure!
             # Instead, manually save interventions with proper task structure
-            for key, intervention in getattr(model_to_save, 'interventions', {}).items():
+            for key, intervention in model_to_save.interventions.items():
                 print_rank_0(f'[DEBUG] Intervention {key} type: {type(intervention)}', self.args.global_rank)
                 print_rank_0(f'[DEBUG] Has state_dict: {hasattr(intervention, "state_dict")}', self.args.global_rank)
                 print_rank_0(f'[DEBUG] Has tasks: {hasattr(intervention, "tasks")}', self.args.global_rank)
-                
-                if hasattr(intervention, 'state_dict'):
-                    # Use our custom state_dict that preserves task structure
-                    intervention_state = intervention.state_dict()
-                    print_rank_0(f'[DEBUG] State dict keys: {list(intervention_state.keys())}', self.args.global_rank)
-                    intervention_file = os.path.join(save_dir, f"intkey_{key}.bin")
-                    torch.save(intervention_state, intervention_file)
-                    print_rank_0(f'Saved intervention {key} with {len(intervention_state)} keys to {intervention_file}', self.args.global_rank)
+
+                # Use our custom state_dict that preserves task structure
+                intervention_state = intervention.state_dict()
+                print_rank_0(f'[DEBUG] State dict keys: {list(intervention_state.keys())}', self.args.global_rank)
+                intervention_file = os.path.join(save_dir, f"intkey_{key}.bin")
+                torch.save(intervention_state, intervention_file)
+                print_rank_0(f'Saved intervention {key} with {len(intervention_state)} keys to {intervention_file}', self.args.global_rank)
             
             # Save intervention config for loading later
-            if hasattr(model_to_save, 'interventions'):
-                config_data = {
-                    'reft_layers': getattr(self.args, 'reft_layers', '4;6;10;12;14;18;20;22;26'),
-                    'reft_rank': getattr(self.args, 'reft_rank', 8), 
-                    'reft_eps': getattr(self.args, 'reft_eps', 1e-8),
-                    'num_tasks': self.num_tasks
-                }
-                config_file = os.path.join(save_dir, "reft_config.json")
-                import json
-                with open(config_file, 'w') as f:
-                    json.dump(config_data, f, indent=2)
-                print_rank_0(f'Saved REFT config to {config_file}', self.args.global_rank)
+            config_data = {
+                'reft_layers': self.args.reft_layers,
+                'reft_rank': self.args.reft_rank,
+                'reft_eps': self.args.reft_eps,
+                'num_tasks': self.num_tasks
+            }
+            config_file = os.path.join(save_dir, "reft_config.json")
+            with open(config_file, 'w') as f:
+                json.dump(config_data, f, indent=2)
+            print_rank_0(f'Saved REFT config to {config_file}', self.args.global_rank)
             
             # SEPARATELY save alpha parameters (pyreft doesn't know about them)
-            alpha_bank = getattr(model_to_save, 'reftcl_alpha_bank', None)
+            alpha_bank = model_to_save.reftcl_alpha_bank
             if alpha_bank is not None:
                 alpha_file = os.path.join(save_dir, "reftcl_alphas.bin")
                 alpha_state = {f"alpha_{i}": alpha_bank.alphas[i].data.clone() for i in range(len(alpha_bank.alphas))}
@@ -313,6 +311,7 @@ class ReFTCL(CL_Base_Model):
                                   sub_folder=str(round))
         print_rank_0('Successfully saving model after round {}'.format(round), self.args.global_rank)
 
+    # Override
     def train_continual(self):
         # For each task round, unfreeze (R_t, W_t, b_t) across layers and set alphas 1..t trainable
         for i_task, task in enumerate(self.train_task_list):
@@ -321,27 +320,25 @@ class ReFTCL(CL_Base_Model):
 
             # Freeze all directions first
             base_ref = self.model.module if hasattr(self.model, "module") else self.model
-            for layer_key, inter in getattr(base_ref, "interventions", {}).items():
-                if hasattr(inter, "tasks"):
-                    print_rank_0(f"[REFT-CL] Round {round_idx}: Freezing all tasks in {layer_key}", self.args.global_rank)
-                    for j in range(self.num_tasks):
-                        block = inter.tasks[j]
-                        param_count = sum(1 for p in block.parameters())
-                        for p in block.parameters():
-                            p.requires_grad = False
-                        print_rank_0(f"  Task {j}: Froze {param_count} parameters", self.args.global_rank)
+            for layer_key, inter in base_ref.interventions.items():
+                print_rank_0(f"[REFT-CL] Round {round_idx}: Freezing all tasks in {layer_key}", self.args.global_rank)
+                for j in range(self.num_tasks):
+                    block = inter.tasks[j]
+                    param_count = sum(1 for p in block.parameters())
+                    for p in block.parameters():
+                        p.requires_grad = False
+                    print_rank_0(f"  Task {j}: Froze {param_count} parameters", self.args.global_rank)
 
             # Unfreeze current round directions (R_t, W_t, b_t)
-            for layer_key, inter in getattr(base_ref, "interventions", {}).items():
-                if hasattr(inter, "tasks"):
-                    print_rank_0(f"[REFT-CL] Round {round_idx}: Unfreezing task {i_task} in {layer_key}", self.args.global_rank)
-                    block = inter.tasks[i_task]
-                    param_count = sum(1 for p in block.parameters())
-                    trainable_before = sum(1 for p in block.parameters() if p.requires_grad)
-                    for p in block.parameters():
-                        p.requires_grad = True
-                    trainable_after = sum(1 for p in block.parameters() if p.requires_grad)
-                    print_rank_0(f"  Task {i_task}: {param_count} params, {trainable_before}→{trainable_after} trainable", self.args.global_rank)
+            for layer_key, inter in base_ref.interventions.items():
+                print_rank_0(f"[REFT-CL] Round {round_idx}: Unfreezing task {i_task} in {layer_key}", self.args.global_rank)
+                block = inter.tasks[i_task]
+                param_count = sum(1 for p in block.parameters())
+                trainable_before = sum(1 for p in block.parameters() if p.requires_grad)
+                for p in block.parameters():
+                    p.requires_grad = True
+                trainable_after = sum(1 for p in block.parameters() if p.requires_grad)
+                print_rank_0(f"  Task {i_task}: {param_count} params, {trainable_before}→{trainable_after} trainable", self.args.global_rank)
 
             # Alphas 1..t are trainable, t+1..T are frozen
             for j, a in enumerate(self.alpha_bank.alphas):
