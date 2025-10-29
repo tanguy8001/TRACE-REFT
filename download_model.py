@@ -11,7 +11,7 @@ import torch
 
 #REPO_ID = "meta-llama/Llama-3.2-3B-Instruct"
 REPO_ID ="meta-llama/Llama-2-7b-chat-hf"
-SAVE_DIR = "/cluster/scratch/tdieudonne/initial_model/llama-3.2-3B-Instruct"
+SAVE_DIR = "/cluster/scratch/tdieudonne/initial_model/Llama-2-7b-chat-hf"
 
 
 def set_cache_env_if_missing():
@@ -118,9 +118,9 @@ Text to parse:
 
 if __name__ == "__main__":
     set_cache_env_if_missing()
-    #if not os.path.isdir(SAVE_DIR) or not os.listdir(SAVE_DIR):
-    #    download_and_save(REPO_ID, SAVE_DIR)
-    #else:
-    #    print(f"Found existing local model at {SAVE_DIR}. Skipping download.")
+    if not os.path.isdir(SAVE_DIR) or not os.listdir(SAVE_DIR):
+        download_and_save(REPO_ID, SAVE_DIR)
+    else:
+        print(f"Found existing local model at {SAVE_DIR}. Skipping download.")
     test_generation(SAVE_DIR)
 

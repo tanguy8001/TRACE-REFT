@@ -27,11 +27,16 @@ def get_train_ds_config(offload,
         "offload_optimizer": {
             "device": device
         },
-        "stage3_param_persistence_threshold": 1e4,
-        "stage3_max_live_parameters": 3e7,
-        "stage3_prefetch_bucket_size": 3e7,
         "memory_efficient_linear": False
     }
+    
+    # Only add stage3 settings if using stage 3
+    if stage == 3:
+        zero_opt_dict.update({
+            "stage3_param_persistence_threshold": 1e4,
+            "stage3_max_live_parameters": 3e7,
+            "stage3_prefetch_bucket_size": 3e7,
+        })
     return {
         "train_batch_size": GLOBAL_BATCH_SIZE,
         "train_micro_batch_size_per_gpu": MICRO_BATCH_SIZE,

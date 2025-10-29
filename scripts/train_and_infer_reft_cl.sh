@@ -8,7 +8,7 @@
 #SBATCH --mem-per-cpu=16g
 set -euo pipefail
 USERNAME="${USERNAME:-tdieudonne}"
-MODEL_NAME="${MODEL_NAME:-llama-2-7b-chat}"
+MODEL_NAME="${MODEL_NAME:-Llama-2-7b-chat-hf}"
 BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
 cl_method="REFT-CL"
 port=$(shuf -i25000-30000 -n1)
@@ -34,7 +34,7 @@ echo "Data cache: $DATA_CACHE"
 echo "CL method: $cl_method"
 echo "Port: $port"
 
-deepspeed  --include=localhost:0 --master_port $port clmm/TRACE/training/main.py \
+deepspeed  --include=localhost:0 --master_port $port training/main.py \
   --data_path "${DATA_PATH}" \
   --dataset_name C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
   --data_output_path "${DATA_CACHE}" \

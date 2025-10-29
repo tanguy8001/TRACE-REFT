@@ -8,17 +8,17 @@
 
 # User-configurable variables
 USERNAME="${USERNAME:-tdieudonne}"
-MODEL_NAME="${MODEL_NAME:-llama-2-7b-chat}"
+MODEL_NAME="${MODEL_NAME:-Llama-2-7b-chat-hf}"
 BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
 
 source /cluster/home/${USERNAME}/miniconda3/etc/profile.d/conda.sh
 module load eth_proxy
 module load stack/2024-06 cuda/12.8.0
-conda activate trace
+conda activate reftcl
 
 cd /cluster/home/${USERNAME}/clmm/TRACE
 
-cl_method="EWC"
+cl_method="O-Lora"
 port=$(shuf -i25000-30000 -n1)
 
 # Paths customized for this environment
@@ -31,7 +31,6 @@ mkdir -p "$OUTPUT_DIR"
 mkdir -p "$DATA_CACHE"
 mkdir -p "$DATA_PATH"
 
-echo "ATTENTION: ANCIEN ENVIRONNEMENT ACTIF: TRACE et non pas REFTCL"
 echo "Starting training with the following parameters:"
 echo "Data path: $DATA_PATH"
 echo "Model path: $MODEL_PATH"

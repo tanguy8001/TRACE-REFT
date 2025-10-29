@@ -8,15 +8,16 @@
 #SBATCH --mem-per-cpu=16g
 set -euo pipefail
 USERNAME="${USERNAME:-tdieudonne}"
-MODEL_NAME="${MODEL_NAME:-llama-2-7b-chat}"
+MODEL_NAME="${MODEL_NAME:-Llama-2-7b-chat-hf}"
 BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
-cl_method="base"
+#cl_method="base"
+cl_method="lora"
 port=$(shuf -i25000-30000 -n1)
 
 DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_${BENCHMARK_SIZE}"
 MODEL_PATH="/cluster/scratch/${USERNAME}/initial_model/${MODEL_NAME}"
-OUTPUT_DIR="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}_newprompt"
-DATA_CACHE="/cluster/scratch/${USERNAME}/reft_cl_outputs"
+OUTPUT_DIR="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}"
+DATA_CACHE="/cluster/scratch/${USERNAME}/lora_cl_outputs"
 mkdir -p "$OUTPUT_DIR"
 mkdir -p "$DATA_CACHE"
 mkdir -p "$DATA_PATH"
@@ -34,7 +35,7 @@ echo "Data cache: $DATA_CACHE"
 echo "CL method: $cl_method"
 echo "Port: $port"
 
-deepspeed  --include=localhost:0,1,2 --master_port $port clmm/TRACE/training/main.py \
+deepspeed  --include=localhost:0 --master_port $port training/main.py \
   --data_path "${DATA_PATH}" \
   --dataset_name C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
   --data_output_path "${DATA_CACHE}" \
@@ -64,14 +65,14 @@ deepspeed  --include=localhost:0,1,2 --master_port $port clmm/TRACE/training/mai
 
 
 USERNAME="${USERNAME:-tdieudonne}"
-MODEL_NAME="${MODEL_NAME:-llama-2-7b-chat}"
+MODEL_NAME="${MODEL_NAME:-Llama-2-7b-chat-hf}"
 BENCHMARK_SIZE="${BENCHMARK_SIZE:-500}"
-cl_method="REFT-CL"
+cl_method="lora"
 port=$(shuf -i25000-30000 -n1)
 
 DATA_PATH="/cluster/scratch/${USERNAME}/TRACE_data/TRACE-Benchmark/LLM-CL-Benchmark_${BENCHMARK_SIZE}"
 MODEL_PATH="/cluster/scratch/${USERNAME}/initial_model/${MODEL_NAME}"
-INFERENCE_MODEL_PATH="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}_newprompt"
+INFERENCE_MODEL_PATH="/cluster/scratch/${USERNAME}/outputs_LLM-CL/cl/${cl_method}"
 INFER_OUTPUT_PATH="${INFERENCE_MODEL_PATH}/predictions"
 CACHE_PATH="/cluster/scratch/${USERNAME}/TRACE_cache"
 
@@ -91,7 +92,7 @@ echo "Inference output path: $INFER_OUTPUT_PATH"
 echo "CL method: $cl_method"
 echo "Port: $port"
 #C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten
-deepspeed --include=localhost:0 --master_port $port clmm/TRACE/inference/infer_single.py \
+deepspeed --include=localhost:0 --master_port $port inference/infer_single.py \
   --data_path "$DATA_PATH" \
   --data_output_path "$CACHE_PATH" \
   --inference_tasks C-STANCE,FOMC,MeetingBank,Py150,ScienceQA,NumGLUE-cm,NumGLUE-ds,20Minuten \
